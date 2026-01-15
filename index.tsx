@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Sparkles, Sword, Shield, Zap, Heart, RefreshCw, ChevronRight, Star, User, Flame, Snowflake, Crosshair, ArrowUpCircle, Layers, Gift } from 'lucide-react';
+import { Sparkles, Sword, Shield, Zap, Heart, RefreshCw, ChevronRight, Star, User, Flame, Snowflake, Crosshair, ArrowUpCircle, Layers, Gift, Skull, Activity } from 'lucide-react';
 
 // --- Game Constants & Types ---
 
@@ -25,7 +25,8 @@ interface Card {
   type: 'ATTACK' | 'DEFEND' | 'SKILL';
   baseValue: number;
   baseCost: number;
-  description: string;
+  description: string; // Short description
+  longDescription: string; // Detailed description for tooltip
   color: string;
   baseFxType: VisualEffectType;
   level: number;
@@ -44,7 +45,7 @@ interface Character {
   avatarColor: string;
 }
 
-type VisualEffectType = 'SLASH' | 'DOUBLE_SLASH' | 'EXPLOSION' | 'SHIELD' | 'HEAL' | 'HIT' | 'THUNDER' | 'ICE_NOVA' | 'LASER' | 'BUFF_AURA';
+type VisualEffectType = 'SLASH' | 'DOUBLE_SLASH' | 'EXPLOSION' | 'SHIELD' | 'HEAL' | 'HIT' | 'THUNDER' | 'ICE_NOVA' | 'LASER' | 'BUFF_AURA' | 'VOID_DRAIN';
 
 interface VisualEffect {
   id: number;
@@ -52,9 +53,16 @@ interface VisualEffect {
   target: 'PLAYER' | 'ENEMY';
 }
 
+interface DamageNumber {
+  id: number;
+  value: string | number;
+  target: 'PLAYER' | 'ENEMY';
+  isCrit: boolean;
+}
+
 const INITIAL_PLAYER_HP = 100;
-const INITIAL_ENEMY_HP = 100;
-const MAX_ENERGY = 3;
+const INITIAL_ENEMY_HP = 150; // Increased enemy HP slightly to handle new strong cards
+const STARTING_ENERGY = 3;
 
 const TYPE_MAP: Record<string, string> = {
   ATTACK: '攻击',
@@ -84,49 +92,107 @@ const createCard = (template: Partial<Card>): Card => {
 // --- Card Definitions ---
 
 const CARD_TEMPLATES: Card[] = [
+  // --- Original Cards ---
   { 
     id: 'c1', name: '星芒斩', type: 'ATTACK', baseValue: 15, baseCost: 1, color: '#e94560', baseFxType: 'SLASH',
-    description: '基础的快速斩击。',
+    description: '造成 15 点伤害',
+    longDescription: '【普通攻击】凝聚星光进行的快速斩击。基础且可靠的输出手段。',
     upgradeOptions: {
-      POWER: { id: 'u1_p', type: 'POWER', name: '巨星斩', description: '伤害大幅提升', valueMod: 10, costMod: 0, newFxType: 'EXPLOSION' },
-      SPEED: { id: 'u1_s', type: 'SPEED', name: '星虹闪', description: '0费，伤害略降', valueMod: -5, costMod: -1, newFxType: 'SLASH' },
-      SPECIAL: { id: 'u1_x', type: 'SPECIAL', name: '双星连斩', description: '造成200%总伤害', valueMod: 0, costMod: 0, newFxType: 'DOUBLE_SLASH' }
+      POWER: { id: 'u1_p', type: 'POWER', name: '巨星斩', description: '伤害+10', valueMod: 10, costMod: 0, newFxType: 'EXPLOSION' },
+      SPEED: { id: 'u1_s', type: 'SPEED', name: '星虹闪', description: '0费，伤害-5', valueMod: -5, costMod: -1, newFxType: 'SLASH' },
+      SPECIAL: { id: 'u1_x', type: 'SPECIAL', name: '双星连斩', description: '造成双倍伤害', valueMod: 0, costMod: 0, newFxType: 'DOUBLE_SLASH' }
     }
   } as Card,
   { 
     id: 'c2', name: '星轨护盾', type: 'DEFEND', baseValue: 12, baseCost: 1, color: '#0f3460', baseFxType: 'SHIELD',
-    description: '生成护盾抵挡伤害。',
+    description: '获得 12 点护盾',
+    longDescription: '【防御手段】利用轨道偏转力场生成护盾，抵挡来自敌人的下一次攻击伤害。',
     upgradeOptions: {
-      POWER: { id: 'u2_p', type: 'POWER', name: '星云壁垒', description: '护盾值翻倍，费用+1', valueMod: 12, costMod: 1, newFxType: 'SHIELD' },
-      SPEED: { id: 'u2_s', type: 'SPEED', name: '紧急护盾', description: '0费，护盾略降', valueMod: -4, costMod: -1, newFxType: 'SHIELD' },
-      SPECIAL: { id: 'u2_x', type: 'SPECIAL', name: '冰霜装甲', description: '获得护盾并冻结敌人(跳过下回合)', valueMod: -2, costMod: 1, newFxType: 'ICE_NOVA' }
+      POWER: { id: 'u2_p', type: 'POWER', name: '星云壁垒', description: '护盾+12，费用+1', valueMod: 12, costMod: 1, newFxType: 'SHIELD' },
+      SPEED: { id: 'u2_s', type: 'SPEED', name: '紧急护盾', description: '0费，护盾-4', valueMod: -4, costMod: -1, newFxType: 'SHIELD' },
+      SPECIAL: { id: 'u2_x', type: 'SPECIAL', name: '冰霜装甲', description: '护盾并冻结敌人', valueMod: -2, costMod: 1, newFxType: 'ICE_NOVA' }
     }
   } as Card,
   { 
     id: 'c3', name: '雷鸣刺', type: 'ATTACK', baseValue: 10, baseCost: 1, color: '#facc15', baseFxType: 'THUNDER',
-    description: '迅捷的雷电攻击。',
+    description: '造成 10 点伤害',
+    longDescription: '【元素攻击】召唤雷电进行穿刺攻击。',
     upgradeOptions: {
-      POWER: { id: 'u3_p', type: 'POWER', name: '雷神之锤', description: '伤害巨幅提升', valueMod: 15, costMod: 1, newFxType: 'THUNDER' },
-      SPEED: { id: 'u3_s', type: 'SPEED', name: '闪电链', description: '抽一张卡(未实装)', valueMod: 0, costMod: 0, newFxType: 'THUNDER' },
-      SPECIAL: { id: 'u3_x', type: 'SPECIAL', name: '等离子光束', description: '无视护盾直接造成真实伤害', valueMod: 5, costMod: 1, newFxType: 'LASER' }
+      POWER: { id: 'u3_p', type: 'POWER', name: '雷神之锤', description: '伤害+15，费用+1', valueMod: 15, costMod: 1, newFxType: 'THUNDER' },
+      SPEED: { id: 'u3_s', type: 'SPEED', name: '闪电链', description: '暂无特殊效果', valueMod: 0, costMod: 0, newFxType: 'THUNDER' },
+      SPECIAL: { id: 'u3_x', type: 'SPECIAL', name: '等离子光束', description: '无视护盾造成的真实伤害', valueMod: 5, costMod: 1, newFxType: 'LASER' }
     }
   } as Card,
   { 
-    id: 'c4', name: '共鸣充能', type: 'SKILL', baseValue: 0, baseCost: 1, color: '#10b981', baseFxType: 'BUFF_AURA',
-    description: '获得 1 点能量。',
+    id: 'c4', name: '共鸣充能', type: 'SKILL', baseValue: 1, baseCost: 0, color: '#10b981', baseFxType: 'BUFF_AURA',
+    description: '获得 1 点能量',
+    longDescription: '【战术技能】0费。与星轨产生共鸣，立刻回复 1 点能量，用于打出更高费用的卡牌。',
     upgradeOptions: {
-      POWER: { id: 'u4_p', type: 'POWER', name: '力量共鸣', description: '获得能量(未来版本加伤)', valueMod: 0, costMod: 0, newFxType: 'BUFF_AURA' },
-      SPEED: { id: 'u4_s', type: 'SPEED', name: '极速超载', description: '获得 2 点能量', valueMod: 0, costMod: 0, newFxType: 'BUFF_AURA' },
+      POWER: { id: 'u4_p', type: 'POWER', name: '力量共鸣', description: '同基础效果', valueMod: 0, costMod: 0, newFxType: 'BUFF_AURA' },
+      SPEED: { id: 'u4_s', type: 'SPEED', name: '极速超载', description: '获得 2 点能量', valueMod: 1, costMod: 0, newFxType: 'BUFF_AURA' },
       SPECIAL: { id: 'u4_x', type: 'SPECIAL', name: '星光治愈', description: '获得能量并恢复生命', valueMod: 15, costMod: 1, newFxType: 'HEAL' }
     }
   } as Card,
   { 
     id: 'c5', name: '彗星冲击', type: 'ATTACK', baseValue: 25, baseCost: 2, color: '#e94560', baseFxType: 'EXPLOSION',
-    description: '造成大量伤害。',
+    description: '造成 25 点伤害',
+    longDescription: '【重型攻击】召唤小型彗星撞击敌人。费用较高，但伤害可观。',
     upgradeOptions: {
-      POWER: { id: 'u5_p', type: 'POWER', name: '陨石天降', description: '伤害极大化，费用+1', valueMod: 25, costMod: 1, newFxType: 'EXPLOSION' },
-      SPEED: { id: 'u5_s', type: 'SPEED', name: '流星雨', description: '费用-1，伤害减半', valueMod: -12, costMod: -1, newFxType: 'DOUBLE_SLASH' },
-      SPECIAL: { id: 'u5_x', type: 'SPECIAL', name: '聚变打击', description: '斩杀效果(低于30血直接击败)', valueMod: 0, costMod: 1, newFxType: 'LASER' }
+      POWER: { id: 'u5_p', type: 'POWER', name: '陨石天降', description: '伤害+25，费用+1', valueMod: 25, costMod: 1, newFxType: 'EXPLOSION' },
+      SPEED: { id: 'u5_s', type: 'SPEED', name: '流星雨', description: '费用-1，伤害-12', valueMod: -12, costMod: -1, newFxType: 'DOUBLE_SLASH' },
+      SPECIAL: { id: 'u5_x', type: 'SPECIAL', name: '聚变打击', description: '生命低于30时斩杀敌人', valueMod: 0, costMod: 1, newFxType: 'LASER' }
+    }
+  } as Card,
+  
+  // --- New Cards ---
+  { 
+    id: 'c6', name: '光子刺', type: 'ATTACK', baseValue: 6, baseCost: 0, color: '#06b6d4', baseFxType: 'SLASH',
+    description: '造成 6 点伤害',
+    longDescription: '【速攻】0费。发射一枚高频光子针。虽然伤害较低，但完全不消耗能量，适合补刀或循环手牌。',
+    upgradeOptions: {
+      POWER: { id: 'u6_p', type: 'POWER', name: '高能光束', description: '伤害+4', valueMod: 4, costMod: 0 },
+      SPEED: { id: 'u6_s', type: 'SPEED', name: '双重光子', description: '造成2次50%伤害', valueMod: 0, costMod: 0, newFxType: 'DOUBLE_SLASH' },
+      SPECIAL: { id: 'u6_x', type: 'SPECIAL', name: '致盲闪光', description: '伤害+2，几率使敌人攻击失效(未实装)', valueMod: 2, costMod: 0, newFxType: 'EXPLOSION' }
+    }
+  } as Card,
+  { 
+    id: 'c7', name: '噬魂星云', type: 'ATTACK', baseValue: 15, baseCost: 2, color: '#8b5cf6', baseFxType: 'VOID_DRAIN',
+    description: '伤害并恢复生命',
+    longDescription: '【吸血】2费。制造吞噬生命的星云，造成 15 点伤害，并恢复等量的生命值。攻守兼备。',
+    upgradeOptions: {
+      POWER: { id: 'u7_p', type: 'POWER', name: '黑洞吞噬', description: '伤害与恢复+10', valueMod: 10, costMod: 0 },
+      SPEED: { id: 'u7_s', type: 'SPEED', name: '快速虹吸', description: '费用-1，数值-5', valueMod: -5, costMod: -1 },
+      SPECIAL: { id: 'u7_x', type: 'SPECIAL', name: '生命溢出', description: '过量治疗转化为护盾(未实装)', valueMod: 0, costMod: 0 }
+    }
+  } as Card,
+  { 
+    id: 'c8', name: '泰坦力场', type: 'DEFEND', baseValue: 35, baseCost: 3, color: '#1e3a8a', baseFxType: 'SHIELD',
+    description: '获得 35 点护盾',
+    longDescription: '【重型防御】3费。部署战舰级防御力场。极高的防御值，能够抵挡绝大多数致命攻击。',
+    upgradeOptions: {
+      POWER: { id: 'u8_p', type: 'POWER', name: '绝对壁垒', description: '护盾+20，费用+1', valueMod: 20, costMod: 1 },
+      SPEED: { id: 'u8_s', type: 'SPEED', name: '折跃力场', description: '费用-1，护盾-10', valueMod: -10, costMod: -1 },
+      SPECIAL: { id: 'u8_x', type: 'SPECIAL', name: '反伤装甲', description: '获得护盾并对攻击者造成伤害(未实装)', valueMod: 0, costMod: 0, newFxType: 'EXPLOSION' }
+    }
+  } as Card,
+  { 
+    id: 'c9', name: '终焉射线', type: 'ATTACK', baseValue: 60, baseCost: 4, color: '#dc2626', baseFxType: 'LASER',
+    description: '造成 60 点伤害',
+    longDescription: '【终结技】4费。聚变核心过载发射的毁灭光束。消耗极高，但能造成毁灭性打击。',
+    upgradeOptions: {
+      POWER: { id: 'u9_p', type: 'POWER', name: '灭星炮', description: '伤害+30，费用+1', valueMod: 30, costMod: 1, newFxType: 'EXPLOSION' },
+      SPEED: { id: 'u9_s', type: 'SPEED', name: '聚焦射线', description: '费用-1，伤害-15', valueMod: -15, costMod: -1 },
+      SPECIAL: { id: 'u9_x', type: 'SPECIAL', name: '真实毁灭', description: '无视护盾', valueMod: -10, costMod: 0 }
+    }
+  } as Card,
+  { 
+    id: 'c10', name: '能量转换', type: 'SKILL', baseValue: 0, baseCost: 0, color: '#f59e0b', baseFxType: 'BUFF_AURA',
+    description: '失去10血，+2能量',
+    longDescription: '【战术技能】0费。透支生命维持系统。失去 10 点生命值，强制获得 2 点能量。慎用。',
+    upgradeOptions: {
+      POWER: { id: 'u10_p', type: 'POWER', name: '高效转换', description: '失去15血，+3能量', valueMod: 0, costMod: 0 },
+      SPEED: { id: 'u10_s', type: 'SPEED', name: '安全转换', description: '失去5血，+1能量', valueMod: 0, costMod: 0 },
+      SPECIAL: { id: 'u10_x', type: 'SPECIAL', name: '护盾转化', description: '消耗所有护盾换取能量(未实装)', valueMod: 0, costMod: 0 }
     }
   } as Card,
 ];
@@ -144,6 +210,7 @@ const getCardStats = (card: Card) => {
   let cost = card.baseCost;
   let fx = card.baseFxType;
   let desc = card.description;
+  let longDesc = card.longDescription;
   let name = card.name;
 
   if (card.currentPath && card.upgradeOptions[card.currentPath]) {
@@ -153,8 +220,9 @@ const getCardStats = (card: Card) => {
     if (upgrade.newFxType) fx = upgrade.newFxType;
     desc = upgrade.description;
     name = upgrade.name;
+    longDesc = `【改造】${upgrade.description}。` + longDesc;
   }
-  return { val, cost, fx, desc, name };
+  return { val, cost, fx, desc, longDesc, name };
 };
 
 // --- Components ---
@@ -179,41 +247,73 @@ const Button = ({ onClick, children, className = '', variant = 'primary', disabl
 };
 
 const CardComponent: React.FC<{ card: Card; onClick?: () => void; disabled?: boolean; showUpgrade?: boolean }> = ({ card, onClick, disabled, showUpgrade }) => {
-  const { val, cost, fx, desc, name } = getCardStats(card);
+  const { val, cost, fx, desc, longDesc, name } = getCardStats(card);
   
   return (
-    <div 
-      onClick={() => !disabled && onClick && onClick()}
-      className={`
-        relative w-32 h-48 rounded-xl p-3 flex flex-col justify-between transition-all duration-300 transform 
-        ${disabled ? 'opacity-50 grayscale cursor-not-allowed scale-95' : 'hover:-translate-y-4 hover:shadow-2xl hover:shadow-pink-500/20 cursor-pointer'}
-        ${card.currentPath === 'POWER' ? 'bg-red-900/40' : card.currentPath === 'SPEED' ? 'bg-blue-900/40' : card.currentPath === 'SPECIAL' ? 'bg-yellow-900/40' : 'bg-gray-900'}
-        border-2
-      `}
-      style={{ borderColor: card.color }}
-    >
-      <div className="text-xs font-bold text-gray-300 flex justify-between">
-        <span className={cost < card.baseCost ? "text-green-400" : ""}>{cost} ⚡</span>
-        <span style={{ color: card.color }}>{TYPE_MAP[card.type]}</span>
-      </div>
-      <div className="flex-1 flex items-center justify-center relative">
-        {card.type === 'ATTACK' && <Sword size={32} style={{ color: card.color }} />}
-        {card.type === 'DEFEND' && <Shield size={32} style={{ color: card.color }} />}
-        {card.type === 'SKILL' && <Sparkles size={32} style={{ color: card.color }} />}
-        
-        {/* Upgrade Icon Overlay */}
-        {card.currentPath && (
-           <div className="absolute -bottom-2 -right-2 bg-black/80 rounded-full p-1 border border-white/20">
-             {card.currentPath === 'POWER' && <Flame size={12} className="text-red-500"/>}
-             {card.currentPath === 'SPEED' && <Zap size={12} className="text-blue-500"/>}
-             {card.currentPath === 'SPECIAL' && <Star size={12} className="text-yellow-500"/>}
-           </div>
+    <div className="relative group z-0 hover:z-50">
+        {/* Card Body */}
+        <div 
+        onClick={() => !disabled && onClick && onClick()}
+        className={`
+            relative w-32 h-48 rounded-xl p-3 flex flex-col justify-between transition-all duration-300 transform 
+            ${disabled ? 'opacity-50 grayscale cursor-not-allowed scale-95' : 'hover:-translate-y-4 hover:shadow-2xl hover:shadow-pink-500/40 cursor-pointer'}
+            ${card.currentPath === 'POWER' ? 'bg-red-900/40' : card.currentPath === 'SPEED' ? 'bg-blue-900/40' : card.currentPath === 'SPECIAL' ? 'bg-yellow-900/40' : 'bg-gray-900'}
+            border-2
+        `}
+        style={{ borderColor: card.color }}
+        >
+        <div className="text-xs font-bold text-gray-300 flex justify-between">
+            <span className={cost < card.baseCost ? "text-green-400" : ""}>{cost} ⚡</span>
+            <span style={{ color: card.color }}>{TYPE_MAP[card.type]}</span>
+        </div>
+        <div className="flex-1 flex items-center justify-center relative">
+            {card.type === 'ATTACK' && <Sword size={32} style={{ color: card.color }} />}
+            {card.type === 'DEFEND' && <Shield size={32} style={{ color: card.color }} />}
+            {card.type === 'SKILL' && <Sparkles size={32} style={{ color: card.color }} />}
+            
+            {/* Stat Badge (Shield or Damage) */}
+            {(card.type === 'ATTACK' || card.type === 'DEFEND') && (
+                <div className={`absolute -bottom-2 ${card.type === 'ATTACK' ? 'bg-red-900/90 border-red-500' : 'bg-blue-900/90 border-blue-500'} border text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg z-10 animate-fade-in`}>
+                  {card.type === 'ATTACK' ? <Sword size={10} /> : <Shield size={10} />}
+                  <span>{val}</span>
+                </div>
+            )}
+
+            {/* Upgrade Icon Overlay */}
+            {card.currentPath && (
+            <div className="absolute -bottom-6 -right-2 bg-black/80 rounded-full p-1 border border-white/20 z-10">
+                {card.currentPath === 'POWER' && <Flame size={12} className="text-red-500"/>}
+                {card.currentPath === 'SPEED' && <Zap size={12} className="text-blue-500"/>}
+                {card.currentPath === 'SPECIAL' && <Star size={12} className="text-yellow-500"/>}
+            </div>
+            )}
+        </div>
+        <div className="text-center mt-2">
+            <div className={`font-bold text-sm text-white mb-1 ${card.currentPath ? 'text-yellow-200' : ''}`}>{name}</div>
+            <div className="text-[10px] text-gray-400 leading-tight line-clamp-2">{desc}</div>
+        </div>
+        </div>
+
+        {/* Hover Tooltip - Detailed Info */}
+        {!disabled && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-56 opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none transform translate-y-2 group-hover:translate-y-0 z-50">
+                <div className="bg-gray-900/95 backdrop-blur-md border border-gray-600 p-3 rounded-xl shadow-2xl text-left">
+                    <div className="flex items-center justify-between mb-2 pb-1 border-b border-gray-700">
+                        <span className="font-bold text-white text-sm">{name}</span>
+                        <span className="text-yellow-400 text-xs font-mono">Cost: {cost}</span>
+                    </div>
+                    <p className="text-xs text-gray-300 leading-relaxed mb-2">
+                        {longDesc}
+                    </p>
+                    <div className="flex gap-2 text-[10px] font-mono text-gray-500 uppercase">
+                        <span className="bg-gray-800 px-1 rounded">{fx}</span>
+                        <span className="bg-gray-800 px-1 rounded">{TYPE_MAP[card.type]}</span>
+                    </div>
+                </div>
+                {/* Arrow */}
+                <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-gray-600 absolute left-1/2 -translate-x-1/2 top-full"></div>
+            </div>
         )}
-      </div>
-      <div className="text-center">
-        <div className={`font-bold text-sm text-white mb-1 ${card.currentPath ? 'text-yellow-200' : ''}`}>{name}</div>
-        <div className="text-[10px] text-gray-400 leading-tight">{desc}</div>
-      </div>
     </div>
   );
 };
@@ -338,6 +438,20 @@ const EffectLayer = ({ effects }: { effects: VisualEffect[] }) => {
              </div>
           )}
 
+          {/* VOID DRAIN */}
+          {fx.type === 'VOID_DRAIN' && (
+             <div className="relative w-full h-full flex items-center justify-center">
+                 <div className="absolute w-48 h-48 bg-purple-900/40 rounded-full animate-ping opacity-50" />
+                 <div className="absolute w-full h-full bg-black/20 animate-flash-short" />
+                 <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-explosion-ring" style={{ borderColor: '#8b5cf6' }}/>
+                 </div>
+                 {/* Life orbs flying to player */}
+                 <div className="absolute w-4 h-4 bg-red-500 rounded-full animate-float-up-2 shadow-[0_0_10px_red]" style={{left: '40%'}}/>
+                 <div className="absolute w-3 h-3 bg-red-500 rounded-full animate-float-up-1 shadow-[0_0_10px_red]" style={{left: '60%'}}/>
+             </div>
+          )}
+
           {/* SHIELD */}
           {fx.type === 'SHIELD' && (
             <div className="relative w-full h-full flex items-center justify-center animate-shield-deploy">
@@ -387,13 +501,14 @@ const App = () => {
   const [enemyShield, setEnemyShield] = useState(0); // New: Enemy Shield
   const [enemyFrozen, setEnemyFrozen] = useState(false); // New: Enemy Frozen Status
   
-  const [energy, setEnergy] = useState(MAX_ENERGY);
+  const [energy, setEnergy] = useState(STARTING_ENERGY);
   const [hand, setHand] = useState<Card[]>([]);
   const [turn, setTurn] = useState<'PLAYER' | 'ENEMY'>('PLAYER');
   const [battleLog, setBattleLog] = useState<string[]>([]);
   
   // VFX State
   const [activeEffects, setActiveEffects] = useState<VisualEffect[]>([]);
+  const [damageNumbers, setDamageNumbers] = useState<DamageNumber[]>([]);
   
   // Gacha State
   const [lastPulledChar, setLastPulledChar] = useState<Character | null>(null);
@@ -439,6 +554,14 @@ const App = () => {
     }, 1200);
   };
 
+  const spawnDamage = (value: string | number, target: 'PLAYER' | 'ENEMY', isCrit: boolean = false) => {
+      const id = Date.now() + Math.random();
+      setDamageNumbers(prev => [...prev, { id, value, target, isCrit }]);
+      setTimeout(() => {
+          setDamageNumbers(prev => prev.filter(d => d.id !== id));
+      }, 800);
+  };
+
   // --- Upgrade Logic ---
   const handleUpgrade = (cardUid: string, path: UpgradePathType) => {
     if (upgradePoints < 1) return; // Check cost
@@ -453,6 +576,30 @@ const App = () => {
     setSelectedCardId(null); // Close modal
   };
 
+  // --- Auto-Skip Logic ---
+  useEffect(() => {
+    if (turn === 'PLAYER' && screen === 'BATTLE') {
+      // Determine if we can play any card
+      const hasPlayableCard = hand.some(card => {
+         const { cost } = getCardStats(card);
+         return energy >= cost;
+      });
+
+      // If no cards are playable (either due to cost or empty hand), end turn automatically
+      if ((!hasPlayableCard && hand.length > 0) || hand.length === 0) {
+        const timer = setTimeout(() => {
+           if (hand.length === 0) {
+             addLog("⚠️ 手牌耗尽，回合结束");
+           } else {
+             addLog("⚠️ 能量不足，回合结束");
+           }
+           setTurn('ENEMY');
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [turn, hand, energy, screen]);
+
   // --- Battle Logic ---
 
   const startBattle = () => {
@@ -461,12 +608,13 @@ const App = () => {
     setPlayerShield(0);
     setEnemyShield(0);
     setEnemyFrozen(false);
-    setEnergy(MAX_ENERGY);
+    setEnergy(STARTING_ENERGY);
     setHand(getRandomCards(3));
     setTurn('PLAYER');
     setBattleLog(['战斗开始！']);
     setScreen('BATTLE');
     setActiveEffects([]);
+    setDamageNumbers([]);
   };
 
   const playCard = async (card: Card) => {
@@ -483,8 +631,8 @@ const App = () => {
       let damage = stats.val;
       let isTrueDamage = false;
 
-      // Special: Double Slash (c1)
-      if (card.currentPath === 'SPECIAL' && card.id === 'c1') {
+      // Special: Double Slash (c1 / c6)
+      if (card.currentPath === 'SPECIAL' && (card.id === 'c1' || card.id === 'c6')) {
          damage = Math.floor(damage * 2);
          addLog("双星连斩！200%伤害");
       }
@@ -498,10 +646,10 @@ const App = () => {
          }
       }
 
-      // Special: Pierce (c3)
-      if (card.currentPath === 'SPECIAL' && card.id === 'c3') {
+      // Special: Pierce (c3 / c9)
+      if ((card.currentPath === 'SPECIAL' && card.id === 'c3') || (card.currentPath === 'SPECIAL' && card.id === 'c9')) {
          isTrueDamage = true;
-         addLog("等离子光束！无视护盾");
+         addLog("高能光束！无视护盾");
       }
 
       // Apply Damage vs Shield
@@ -523,8 +671,18 @@ const App = () => {
         setEnemyHp(prev => prev - actualDmg);
         setShake(true);
         setTimeout(() => setShake(false), 300);
+        spawnDamage(actualDmg, 'ENEMY', damage > 15 || isTrueDamage || (card.currentPath === 'SPECIAL' && card.id === 'c5'));
+      } else {
+        spawnDamage('格挡', 'ENEMY');
       }
       
+      // Special: Life Drain (c7)
+      if (card.id === 'c7') {
+         setPlayerHp(prev => Math.min(prev + actualDmg, INITIAL_PLAYER_HP));
+         triggerEffect('HEAL', 'PLAYER');
+         addLog(`虹吸！恢复了 ${actualDmg} 生命`);
+      }
+
       triggerEffect(stats.fx, 'ENEMY');
     } 
     // -- DEFEND LOGIC --
@@ -541,10 +699,22 @@ const App = () => {
     } 
     // -- SKILL LOGIC --
     else if (card.type === 'SKILL') {
+       // Special: Energy Conversion (c10)
+       if (card.id === 'c10') {
+           // Lose 10 HP (or 15 for upgrade)
+           const hpCost = (card.currentPath === 'POWER') ? 15 : (card.currentPath === 'SPEED' ? 5 : 10);
+           const energyGain = (card.currentPath === 'POWER') ? 3 : (card.currentPath === 'SPEED' ? 1 : 2);
+
+           setPlayerHp(prev => Math.max(1, prev - hpCost));
+           setEnergy(prev => prev + energyGain);
+           addLog(`牺牲 ${hpCost} 生命，获得能量`);
+           triggerEffect('BUFF_AURA', 'PLAYER');
+       }
        // Special: Heal + Energy (c4)
-       if (card.id === 'c4' && card.currentPath === 'SPECIAL') {
+       else if (card.id === 'c4' && card.currentPath === 'SPECIAL') {
            setPlayerHp(prev => Math.min(prev + stats.val, INITIAL_PLAYER_HP));
-           setEnergy(prev => Math.min(prev + 1, 5));
+           // No upper limit check anymore
+           setEnergy(prev => prev + 1); 
            triggerEffect('HEAL', 'PLAYER');
        }
        else if (stats.fx === 'HEAL') {
@@ -552,10 +722,10 @@ const App = () => {
          triggerEffect('HEAL', 'PLAYER');
        } 
        else if (stats.fx === 'BUFF_AURA') {
-         let energyGain = 1;
-         if (card.currentPath === 'SPEED' && card.id === 'c4') energyGain = 2; // Overload
+         let energyGain = stats.val > 0 ? stats.val : 1;
+         // Note: c4 baseValue is now 1 (set in templates), so base energyGain is 1.
          
-         setEnergy(prev => Math.min(prev + energyGain, 5));
+         setEnergy(prev => prev + energyGain); // Remove cap
          triggerEffect('BUFF_AURA', 'PLAYER');
          
          if (card.currentPath === 'SPEED' && card.id === 'c4') {
@@ -572,8 +742,8 @@ const App = () => {
 
     setHand(prev => prev.filter(c => c.uid !== card.uid)); // Remove played card instance
     
-    // Simple turn switch
-    setTurn('ENEMY');
+    // We do NOT automatically end turn anymore, waiting for player to use all energy
+    // The Auto-Skip useEffect will handle the turn switch
   };
 
   // Check Win/Loss Effect
@@ -601,9 +771,9 @@ const App = () => {
              triggerEffect('ICE_NOVA', 'ENEMY'); // Visual reminder
              setEnemyFrozen(false);
              
-             // End Turn
+             // End Turn -> Start Player Turn
              setTurn('PLAYER');
-             setEnergy(MAX_ENERGY);
+             setEnergy(STARTING_ENERGY); // Reset Energy
              setHand(getRandomCards(3));
              setPlayerShield(0);
              return;
@@ -631,6 +801,9 @@ const App = () => {
           
           if (actualDmg > 0) {
             setPlayerHp(prev => prev - actualDmg);
+            spawnDamage(actualDmg, 'PLAYER');
+          } else {
+            spawnDamage('格挡', 'PLAYER');
           }
           addLog(`敌人造成了 ${dmg} 点伤害！`);
         } else {
@@ -641,11 +814,11 @@ const App = () => {
           addLog(`敌人强化了防御，护盾+${shieldGain}`);
         }
 
-        // End Enemy Turn
+        // End Enemy Turn -> Start Player Turn
         setTurn('PLAYER');
         setHand(getRandomCards(3));
         setPlayerShield(0); // Player Shields expire
-        setEnergy(MAX_ENERGY);
+        setEnergy(STARTING_ENERGY); // Reset Energy for next turn
 
       }, 1500); // Delay for dramatic effect
 
@@ -837,17 +1010,32 @@ const App = () => {
                
                <div className="w-32 h-48 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-[0_0_30px_rgba(99,102,241,0.3)] flex items-center justify-center relative overflow-hidden group">
                   <User size={64} className="text-white/80" />
-                  {/* Shield Overlay */}
-                  {playerShield > 0 && (
-                    <div className="absolute inset-0 border-4 border-blue-400 rounded-xl animate-pulse bg-blue-500/20 flex items-center justify-center">
-                      <Shield className="text-blue-400" size={24} />
-                      <span className="font-bold text-blue-100">{playerShield}</span>
-                    </div>
-                  )}
                   {/* Hit FX */}
                   {playerHp < INITIAL_PLAYER_HP && (
                     <div className="absolute inset-0 bg-red-500/20 animate-pulse pointer-events-none" />
                   )}
+               </div>
+               
+               {/* Shield Overlay - Modified to be Bottom Right Badge */}
+               {playerShield > 0 && (
+                 <>
+                   <div className="absolute inset-0 border-2 border-blue-400/50 rounded-xl animate-pulse pointer-events-none z-10"></div>
+                   <div className="absolute bottom-1 right-1 bg-gray-900/80 border border-blue-400 text-blue-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg z-20 backdrop-blur-sm">
+                     <Shield size={14} className="text-blue-400" fill="currentColor" />
+                     <span className="font-bold text-sm font-mono">{playerShield}</span>
+                   </div>
+                 </>
+               )}
+
+               {/* Damage Numbers Layer */}
+               <div className="absolute inset-0 pointer-events-none z-[60] flex justify-center items-center">
+                  {damageNumbers.filter(d => d.target === 'PLAYER').map(d => (
+                      <div key={d.id} className={`absolute animate-float-damage font-black stroke-black drop-shadow-lg
+                           ${d.isCrit ? 'text-5xl text-yellow-400' : 'text-4xl text-red-500'}
+                      `} style={{textShadow: '2px 2px 0 #000'}}>
+                          {d.value}
+                      </div>
+                  ))}
                </div>
             </div>
             {/* Player Stats */}
@@ -879,14 +1067,28 @@ const App = () => {
                   ) : (
                       <span className="text-6xl filter drop-shadow-lg">👾</span>
                   )}
-                  
-                  {/* Enemy Shield Overlay */}
-                  {enemyShield > 0 && (
-                    <div className="absolute inset-0 border-4 border-gray-400 rounded-xl bg-gray-500/20 flex items-center justify-center z-10">
-                      <Shield className="text-gray-300" size={24} />
-                      <span className="font-bold text-white ml-1">{enemyShield}</span>
+               </div>
+               
+               {/* Enemy Shield Overlay - Modified to be Bottom Right Badge */}
+               {enemyShield > 0 && (
+                 <>
+                    <div className="absolute inset-0 border-2 border-gray-400/50 rounded-xl pointer-events-none z-10"></div>
+                    <div className="absolute bottom-1 right-1 bg-gray-900/80 border border-gray-400 text-gray-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg z-20 backdrop-blur-sm">
+                       <Shield size={14} className="text-gray-400" fill="currentColor" />
+                       <span className="font-bold text-sm font-mono">{enemyShield}</span>
                     </div>
-                  )}
+                 </>
+               )}
+
+               {/* Damage Numbers Layer */}
+               <div className="absolute inset-0 pointer-events-none z-[60] flex justify-center items-center">
+                  {damageNumbers.filter(d => d.target === 'ENEMY').map(d => (
+                      <div key={d.id} className={`absolute animate-float-damage font-black stroke-black drop-shadow-lg
+                           ${d.isCrit ? 'text-5xl text-yellow-400' : 'text-4xl text-white'}
+                      `} style={{textShadow: '2px 2px 0 #000'}}>
+                          {d.value}
+                      </div>
+                  ))}
                </div>
             </div>
             {/* Enemy Stats */}
@@ -916,8 +1118,8 @@ const App = () => {
       {/* Cards UI */}
       <div className="h-64 bg-gray-900/90 border-t border-gray-700 relative z-30 p-4 flex flex-col items-center">
         <div className="flex justify-between w-full max-w-lg mb-2 px-4">
-          <div className="text-xs text-gray-400 font-mono">
-            能量 <span className="text-yellow-400 font-bold ml-1">{"⚡".repeat(energy)}</span>
+          <div className="text-xs text-gray-400 font-mono flex items-center gap-1">
+            能量 <span className="text-yellow-400 font-bold ml-1 text-lg">⚡ {energy}</span>
           </div>
           <div className="text-xs text-gray-400 font-mono">
              牌库: {Math.max(0, deck.length - hand.length)}
@@ -1199,6 +1401,15 @@ style.textContent = `
     0% { opacity: 0.6; }
     100% { opacity: 0; }
   }
+
+  /* DAMAGE FLOATERS */
+  @keyframes float-damage {
+    0% { opacity: 1; transform: translateY(0) scale(0.5); }
+    20% { opacity: 1; transform: translateY(-20px) scale(1.5); }
+    80% { opacity: 1; transform: translateY(-40px) scale(1); }
+    100% { opacity: 0; transform: translateY(-60px) scale(0.8); }
+  }
+  .animate-float-damage { animation: float-damage 0.8s ease-out forwards; }
 
   .animate-fade-in { animation: fade-in 0.5s ease-out forwards; }
   .animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
