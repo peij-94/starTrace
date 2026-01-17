@@ -1,51 +1,49 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Sparkles, Sword, Shield, Zap, Heart, RefreshCw, ChevronRight, Star, User, Flame, Snowflake, Crosshair, ArrowUpCircle, Layers, Gift, Skull, Activity } from 'lucide-react';
+import { 
+  Sword, Shield, Sparkles, Flame, Zap, Star, Layers, 
+  ChevronRight, User, Snowflake, Skull, RefreshCw, Box, Copy,
+  ZapOff, Crosshair, Droplets, Wind
+} from 'lucide-react';
 
-// --- Game Constants & Types ---
-
-type GameScreen = 'MENU' | 'BATTLE' | 'GACHA' | 'VICTORY' | 'DEFEAT' | 'DECK' | 'REWARD';
-
+// --- Types ---
+type CardType = 'ATTACK' | 'DEFEND' | 'SKILL';
+// Expanded visual effect types for more variety
+type VisualEffectType = 'SLASH' | 'BLOCK' | 'HEAL' | 'BUFF_AURA' | 'EXPLOSION' | 'ICE_NOVA' | 'THUNDER' | 'DRAW' | 'LASER' | 'VOID' | 'DRAIN' | 'SPIN_SLASH';
 type UpgradePathType = 'POWER' | 'SPEED' | 'SPECIAL';
+type GameScreen = 'MENU' | 'BATTLE' | 'DECK' | 'GACHA' | 'REWARD' | 'VICTORY' | 'DEFEAT';
 
 interface UpgradeOption {
-  id: string;
-  type: UpgradePathType;
   name: string;
   description: string;
-  valueMod: number; // Add to base value
-  costMod: number; // Add to base cost (usually negative)
-  newFxType?: VisualEffectType; // Override VFX
+  valueMod: number;
+  costMod: number;
 }
 
 interface Card {
+  uid: string;
   id: string;
-  uid: string; // Unique ID for instance
-  name: string;
-  type: 'ATTACK' | 'DEFEND' | 'SKILL';
-  baseValue: number;
+  type: CardType;
+  baseName: string;
+  baseDesc: string;
   baseCost: number;
-  description: string; // Short description
-  longDescription: string; // Detailed description for tooltip
+  baseValue: number;
+  baseFx: VisualEffectType;
   color: string;
-  baseFxType: VisualEffectType;
   level: number;
-  maxLevel: number;
+  currentPath: UpgradePathType | null;
   upgradeOptions: {
     [key in UpgradePathType]?: UpgradeOption;
   };
-  currentPath: UpgradePathType | null; // null = base form
 }
 
 interface Character {
   id: string;
   name: string;
-  rarity: 'R' | 'SR' | 'SSR';
-  element: 'Fire' | 'Water' | 'Wind';
+  desc: string;
   avatarColor: string;
+  rarity: 'R' | 'SR' | 'SSR';
 }
-
-type VisualEffectType = 'SLASH' | 'DOUBLE_SLASH' | 'EXPLOSION' | 'SHIELD' | 'HEAL' | 'HIT' | 'THUNDER' | 'ICE_NOVA' | 'LASER' | 'BUFF_AURA' | 'VOID_DRAIN';
 
 interface VisualEffect {
   id: number;
@@ -57,208 +55,213 @@ interface DamageNumber {
   id: number;
   value: string | number;
   target: 'PLAYER' | 'ENEMY';
-  isCrit: boolean;
+  isCrit?: boolean;
 }
 
+// --- Constants ---
 const INITIAL_PLAYER_HP = 100;
-const INITIAL_ENEMY_HP = 150; // Increased enemy HP slightly to handle new strong cards
+const INITIAL_ENEMY_HP = 200;
 const STARTING_ENERGY = 3;
+const MAX_DECK_SIZE = 30; // Max cards in battle deck
 
-const TYPE_MAP: Record<string, string> = {
+const TYPE_MAP: Record<CardType, string> = {
   ATTACK: '攻击',
   DEFEND: '防御',
   SKILL: '技能'
 };
 
-const ELEMENT_MAP: Record<string, string> = {
-  Fire: '火',
-  Water: '水',
-  Wind: '风'
-};
-
-// --- Data Factories ---
-
-const createCard = (template: Partial<Card>): Card => {
-  return {
-    uid: Math.random().toString(36).substr(2, 9),
-    level: 1,
-    maxLevel: 2, // Simplified for demo
-    currentPath: null,
-    upgradeOptions: {},
-    ...template
-  } as Card;
-};
-
-// --- Card Definitions ---
-
-const CARD_TEMPLATES: Card[] = [
-  // --- Original Cards ---
-  { 
-    id: 'c1', name: '星芒斩', type: 'ATTACK', baseValue: 15, baseCost: 1, color: '#e94560', baseFxType: 'SLASH',
-    description: '造成 15 点伤害',
-    longDescription: '【普通攻击】凝聚星光进行的快速斩击。基础且可靠的输出手段。',
+const CARD_TEMPLATES: Omit<Card, 'uid' | 'level' | 'currentPath'>[] = [
+  {
+    id: 'c1', type: 'ATTACK', baseName: '星光斩', baseDesc: '造成 {val} 点伤害', 
+    baseCost: 1, baseValue: 8, baseFx: 'SLASH', color: '#ef4444',
     upgradeOptions: {
-      POWER: { id: 'u1_p', type: 'POWER', name: '巨星斩', description: '伤害+10', valueMod: 10, costMod: 0, newFxType: 'EXPLOSION' },
-      SPEED: { id: 'u1_s', type: 'SPEED', name: '星虹闪', description: '0费，伤害-5', valueMod: -5, costMod: -1, newFxType: 'SLASH' },
-      SPECIAL: { id: 'u1_x', type: 'SPECIAL', name: '双星连斩', description: '造成双倍伤害', valueMod: 0, costMod: 0, newFxType: 'DOUBLE_SLASH' }
+      POWER: { name: '重斩', description: '伤害大幅提升', valueMod: 5, costMod: 0 },
+      SPEED: { name: '光速斩', description: '费用降低', valueMod: -2, costMod: -1 },
+      SPECIAL: { name: '双星连斩', description: '造成2次伤害', valueMod: 0, costMod: 1 }
     }
-  } as Card,
-  { 
-    id: 'c2', name: '星轨护盾', type: 'DEFEND', baseValue: 12, baseCost: 1, color: '#0f3460', baseFxType: 'SHIELD',
-    description: '获得 12 点护盾',
-    longDescription: '【防御手段】利用轨道偏转力场生成护盾，抵挡来自敌人的下一次攻击伤害。',
+  },
+  {
+    id: 'c2', type: 'DEFEND', baseName: '相位盾', baseDesc: '获得 {val} 点护盾', 
+    baseCost: 1, baseValue: 7, baseFx: 'BLOCK', color: '#3b82f6',
     upgradeOptions: {
-      POWER: { id: 'u2_p', type: 'POWER', name: '星云壁垒', description: '护盾+12，费用+1', valueMod: 12, costMod: 1, newFxType: 'SHIELD' },
-      SPEED: { id: 'u2_s', type: 'SPEED', name: '紧急护盾', description: '0费，护盾-4', valueMod: -4, costMod: -1, newFxType: 'SHIELD' },
-      SPECIAL: { id: 'u2_x', type: 'SPECIAL', name: '冰霜装甲', description: '护盾并冻结敌人', valueMod: -2, costMod: 1, newFxType: 'ICE_NOVA' }
+      POWER: { name: '力场盾', description: '护盾值提升', valueMod: 5, costMod: 0 },
+      SPEED: { name: '轻型盾', description: '0费启动', valueMod: -2, costMod: -1 },
+      SPECIAL: { name: '绝对零度', description: '获得护盾并冻结敌人', valueMod: 0, costMod: 1 }
     }
-  } as Card,
-  { 
-    id: 'c3', name: '雷鸣刺', type: 'ATTACK', baseValue: 10, baseCost: 1, color: '#facc15', baseFxType: 'THUNDER',
-    description: '造成 10 点伤害',
-    longDescription: '【元素攻击】召唤雷电进行穿刺攻击。',
+  },
+  {
+    id: 'c3', type: 'ATTACK', baseName: '雷击', baseDesc: '造成 {val} 点伤害', 
+    baseCost: 2, baseValue: 14, baseFx: 'THUNDER', color: '#a855f7',
     upgradeOptions: {
-      POWER: { id: 'u3_p', type: 'POWER', name: '雷神之锤', description: '伤害+15，费用+1', valueMod: 15, costMod: 1, newFxType: 'THUNDER' },
-      SPEED: { id: 'u3_s', type: 'SPEED', name: '闪电链', description: '暂无特殊效果', valueMod: 0, costMod: 0, newFxType: 'THUNDER' },
-      SPECIAL: { id: 'u3_x', type: 'SPECIAL', name: '等离子光束', description: '无视护盾造成的真实伤害', valueMod: 5, costMod: 1, newFxType: 'LASER' }
+      POWER: { name: '雷暴', description: '伤害极大提升', valueMod: 8, costMod: 0 },
+      SPEED: { name: '瞬雷', description: '费用降低', valueMod: 0, costMod: -1 },
+      SPECIAL: { name: '贯穿雷枪', description: '无视护盾造成伤害', valueMod: 0, costMod: 0 }
     }
-  } as Card,
-  { 
-    id: 'c4', name: '共鸣充能', type: 'SKILL', baseValue: 1, baseCost: 0, color: '#10b981', baseFxType: 'BUFF_AURA',
-    description: '获得 1 点能量',
-    longDescription: '【战术技能】0费。与星轨产生共鸣，立刻回复 1 点能量，用于打出更高费用的卡牌。',
+  },
+  {
+    id: 'c4', type: 'SKILL', baseName: '能量超载', baseDesc: '获得 1 点能量', 
+    baseCost: 0, baseValue: 1, baseFx: 'BUFF_AURA', color: '#eab308',
     upgradeOptions: {
-      POWER: { id: 'u4_p', type: 'POWER', name: '力量共鸣', description: '同基础效果', valueMod: 0, costMod: 0, newFxType: 'BUFF_AURA' },
-      SPEED: { id: 'u4_s', type: 'SPEED', name: '极速超载', description: '获得 2 点能量', valueMod: 1, costMod: 0, newFxType: 'BUFF_AURA' },
-      SPECIAL: { id: 'u4_x', type: 'SPECIAL', name: '星光治愈', description: '获得能量并恢复生命', valueMod: 15, costMod: 1, newFxType: 'HEAL' }
+      POWER: { name: '极限超载', description: '获得3点能量，但消耗生命', valueMod: 2, costMod: 0 },
+      SPEED: { name: '稳定充能', description: '获得2点能量', valueMod: 1, costMod: 0 },
+      SPECIAL: { name: '生命转化', description: '获得能量并恢复生命', valueMod: 5, costMod: 0 }
     }
-  } as Card,
-  { 
-    id: 'c5', name: '彗星冲击', type: 'ATTACK', baseValue: 25, baseCost: 2, color: '#e94560', baseFxType: 'EXPLOSION',
-    description: '造成 25 点伤害',
-    longDescription: '【重型攻击】召唤小型彗星撞击敌人。费用较高，但伤害可观。',
+  },
+  {
+    id: 'c5', type: 'ATTACK', baseName: '聚变打击', baseDesc: '造成 {val} 点伤害', 
+    baseCost: 3, baseValue: 25, baseFx: 'EXPLOSION', color: '#f43f5e',
     upgradeOptions: {
-      POWER: { id: 'u5_p', type: 'POWER', name: '陨石天降', description: '伤害+25，费用+1', valueMod: 25, costMod: 1, newFxType: 'EXPLOSION' },
-      SPEED: { id: 'u5_s', type: 'SPEED', name: '流星雨', description: '费用-1，伤害-12', valueMod: -12, costMod: -1, newFxType: 'DOUBLE_SLASH' },
-      SPECIAL: { id: 'u5_x', type: 'SPECIAL', name: '聚变打击', description: '生命低于30时斩杀敌人', valueMod: 0, costMod: 1, newFxType: 'LASER' }
+      POWER: { name: '核爆', description: '伤害提升', valueMod: 10, costMod: 0 },
+      SPEED: { name: '快速反应', description: '费用 -1', valueMod: 0, costMod: -1 },
+      SPECIAL: { name: '斩杀', description: '敌人生命<30%时直接消灭', valueMod: 0, costMod: 0 }
     }
-  } as Card,
-  
-  // --- New Cards ---
-  { 
-    id: 'c6', name: '光子刺', type: 'ATTACK', baseValue: 6, baseCost: 0, color: '#06b6d4', baseFxType: 'SLASH',
-    description: '造成 6 点伤害',
-    longDescription: '【速攻】0费。发射一枚高频光子针。虽然伤害较低，但完全不消耗能量，适合补刀或循环手牌。',
+  },
+  {
+    id: 'c6', type: 'ATTACK', baseName: '回旋刃', baseDesc: '造成 {val} 点伤害',
+    baseCost: 1, baseValue: 6, baseFx: 'SPIN_SLASH', color: '#ec4899',
     upgradeOptions: {
-      POWER: { id: 'u6_p', type: 'POWER', name: '高能光束', description: '伤害+4', valueMod: 4, costMod: 0 },
-      SPEED: { id: 'u6_s', type: 'SPEED', name: '双重光子', description: '造成2次50%伤害', valueMod: 0, costMod: 0, newFxType: 'DOUBLE_SLASH' },
-      SPECIAL: { id: 'u6_x', type: 'SPECIAL', name: '致盲闪光', description: '伤害+2，几率使敌人攻击失效(未实装)', valueMod: 2, costMod: 0, newFxType: 'EXPLOSION' }
+        POWER: { name: '重刃', description: '伤害 +4', valueMod: 4, costMod: 0 },
+        SPEED: { name: '极速', description: '0费', valueMod: -1, costMod: -1 },
+        SPECIAL: { name: '双重回旋', description: '触发两次', valueMod: 0, costMod: 1 }
     }
-  } as Card,
-  { 
-    id: 'c7', name: '噬魂星云', type: 'ATTACK', baseValue: 15, baseCost: 2, color: '#8b5cf6', baseFxType: 'VOID_DRAIN',
-    description: '伤害并恢复生命',
-    longDescription: '【吸血】2费。制造吞噬生命的星云，造成 15 点伤害，并恢复等量的生命值。攻守兼备。',
-    upgradeOptions: {
-      POWER: { id: 'u7_p', type: 'POWER', name: '黑洞吞噬', description: '伤害与恢复+10', valueMod: 10, costMod: 0 },
-      SPEED: { id: 'u7_s', type: 'SPEED', name: '快速虹吸', description: '费用-1，数值-5', valueMod: -5, costMod: -1 },
-      SPECIAL: { id: 'u7_x', type: 'SPECIAL', name: '生命溢出', description: '过量治疗转化为护盾(未实装)', valueMod: 0, costMod: 0 }
-    }
-  } as Card,
-  { 
-    id: 'c8', name: '泰坦力场', type: 'DEFEND', baseValue: 35, baseCost: 3, color: '#1e3a8a', baseFxType: 'SHIELD',
-    description: '获得 35 点护盾',
-    longDescription: '【重型防御】3费。部署战舰级防御力场。极高的防御值，能够抵挡绝大多数致命攻击。',
-    upgradeOptions: {
-      POWER: { id: 'u8_p', type: 'POWER', name: '绝对壁垒', description: '护盾+20，费用+1', valueMod: 20, costMod: 1 },
-      SPEED: { id: 'u8_s', type: 'SPEED', name: '折跃力场', description: '费用-1，护盾-10', valueMod: -10, costMod: -1 },
-      SPECIAL: { id: 'u8_x', type: 'SPECIAL', name: '反伤装甲', description: '获得护盾并对攻击者造成伤害(未实装)', valueMod: 0, costMod: 0, newFxType: 'EXPLOSION' }
-    }
-  } as Card,
-  { 
-    id: 'c9', name: '终焉射线', type: 'ATTACK', baseValue: 60, baseCost: 4, color: '#dc2626', baseFxType: 'LASER',
-    description: '造成 60 点伤害',
-    longDescription: '【终结技】4费。聚变核心过载发射的毁灭光束。消耗极高，但能造成毁灭性打击。',
-    upgradeOptions: {
-      POWER: { id: 'u9_p', type: 'POWER', name: '灭星炮', description: '伤害+30，费用+1', valueMod: 30, costMod: 1, newFxType: 'EXPLOSION' },
-      SPEED: { id: 'u9_s', type: 'SPEED', name: '聚焦射线', description: '费用-1，伤害-15', valueMod: -15, costMod: -1 },
-      SPECIAL: { id: 'u9_x', type: 'SPECIAL', name: '真实毁灭', description: '无视护盾', valueMod: -10, costMod: 0 }
-    }
-  } as Card,
-  { 
-    id: 'c10', name: '能量转换', type: 'SKILL', baseValue: 0, baseCost: 0, color: '#f59e0b', baseFxType: 'BUFF_AURA',
-    description: '失去10血，+2能量',
-    longDescription: '【战术技能】0费。透支生命维持系统。失去 10 点生命值，强制获得 2 点能量。慎用。',
-    upgradeOptions: {
-      POWER: { id: 'u10_p', type: 'POWER', name: '高效转换', description: '失去15血，+3能量', valueMod: 0, costMod: 0 },
-      SPEED: { id: 'u10_s', type: 'SPEED', name: '安全转换', description: '失去5血，+1能量', valueMod: 0, costMod: 0 },
-      SPECIAL: { id: 'u10_x', type: 'SPECIAL', name: '护盾转化', description: '消耗所有护盾换取能量(未实装)', valueMod: 0, costMod: 0 }
-    }
-  } as Card,
+  },
+  {
+      id: 'c7', type: 'ATTACK', baseName: '吸血之触', baseDesc: '造成 {val} 伤害并回血',
+      baseCost: 2, baseValue: 8, baseFx: 'DRAIN', color: '#be123c',
+      upgradeOptions: {
+          POWER: { name: '鲜血盛宴', description: '伤害 +5', valueMod: 5, costMod: 0 },
+          SPEED: { name: '迅捷吸血', description: '费用 -1', valueMod: -2, costMod: -1 },
+          SPECIAL: { name: '生命虹吸', description: '恢复量翻倍', valueMod: 0, costMod: 0 }
+      }
+  },
+  {
+      id: 'c9', type: 'ATTACK', baseName: '光束炮', baseDesc: '造成 {val} 点伤害',
+      baseCost: 2, baseValue: 12, baseFx: 'LASER', color: '#3b82f6',
+      upgradeOptions: {
+          POWER: { name: '高能炮', description: '伤害 +8', valueMod: 8, costMod: 0 },
+          SPEED: { name: '连发模式', description: '费用 -1', valueMod: -2, costMod: -1 },
+          SPECIAL: { name: '穿透光束', description: '无视护盾', valueMod: 0, costMod: 0 }
+      }
+  },
+  {
+      id: 'c10', type: 'SKILL', baseName: '禁忌契约', baseDesc: '消耗生命换取能量',
+      baseCost: 0, baseValue: 0, baseFx: 'VOID', color: '#7f1d1d',
+      upgradeOptions: {
+          POWER: { name: '恶魔契约', description: '消耗更多生命，获得3能量', valueMod: 0, costMod: 0 },
+          SPEED: { name: '轻量契约', description: '消耗少量生命，获得1能量', valueMod: 0, costMod: 0 },
+          SPECIAL: { name: '等价交换', description: '消耗10生命，获得2能量', valueMod: 0, costMod: 0 }
+      }
+  },
+  {
+      id: 'c11', type: 'SKILL', baseName: '战术补给', baseDesc: '抽 2 张牌',
+      baseCost: 0, baseValue: 2, baseFx: 'DRAW', color: '#10b981',
+      upgradeOptions: {
+          POWER: { name: '大量补给', description: '抽 3 张牌，费用+1', valueMod: 1, costMod: 1 },
+          SPEED: { name: '快速补给', description: '抽 2 张牌', valueMod: 0, costMod: 0 },
+          SPECIAL: { name: '能量补给', description: '抽1牌并获得1能量', valueMod: -1, costMod: 0 }
+      }
+  },
+  {
+      id: 'c12', type: 'SKILL', baseName: '紧急扩容', baseDesc: '抽 3 张牌',
+      baseCost: 1, baseValue: 3, baseFx: 'DRAW', color: '#059669',
+      upgradeOptions: {
+          POWER: { name: '极限扩容', description: '抽 5 张牌', valueMod: 2, costMod: 1 },
+          SPEED: { name: '便携扩容', description: '0费，抽 2 张', valueMod: -1, costMod: -1 },
+          SPECIAL: { name: '回收', description: '从弃牌堆随机拿回一张牌', valueMod: 0, costMod: 0 }
+      }
+  }
 ];
 
-const CHARACTERS_POOL: Character[] = [
-  { id: 'ch1', name: '露娜', rarity: 'SSR', element: 'Wind', avatarColor: 'from-cyan-400 to-blue-500' },
-  { id: 'ch2', name: '伊格尼斯', rarity: 'SR', element: 'Fire', avatarColor: 'from-orange-400 to-red-500' },
-  { id: 'ch3', name: '阿库娅', rarity: 'R', element: 'Water', avatarColor: 'from-blue-400 to-indigo-500' },
+const CHARACTERS: Character[] = [
+  { id: 'ch1', name: '蕾娜', desc: '星际雇佣兵', avatarColor: '#f87171', rarity: 'R' },
+  { id: 'ch2', name: '凯尔', desc: '虚空行者', avatarColor: '#818cf8', rarity: 'SR' },
+  { id: 'ch3', name: '伊莉丝', desc: '银河歌姬', avatarColor: '#f472b6', rarity: 'SSR' },
 ];
 
 // --- Helpers ---
+const createCard = (template: Omit<Card, 'uid' | 'level' | 'currentPath'>): Card => {
+  return {
+    ...template,
+    uid: Math.random().toString(36).substr(2, 9),
+    level: 1,
+    currentPath: null,
+  };
+};
 
 const getCardStats = (card: Card) => {
   let val = card.baseValue;
   let cost = card.baseCost;
-  let fx = card.baseFxType;
-  let desc = card.description;
-  let longDesc = card.longDescription;
-  let name = card.name;
+  let name = card.baseName;
+  let desc = card.baseDesc;
+  let fx = card.baseFx;
 
   if (card.currentPath && card.upgradeOptions[card.currentPath]) {
     const upgrade = card.upgradeOptions[card.currentPath]!;
     val += upgrade.valueMod;
-    cost = Math.max(0, cost + upgrade.costMod);
-    if (upgrade.newFxType) fx = upgrade.newFxType;
-    desc = upgrade.description;
+    cost = Math.max(0, cost + upgrade.costMod); // Prevent negative cost
     name = upgrade.name;
-    longDesc = `【改造】${upgrade.description}。` + longDesc;
   }
-  return { val, cost, fx, desc, longDesc, name };
+  
+  // Replace placeholders
+  desc = desc.replace('{val}', val.toString());
+
+  return { val, cost, name, desc, fx, longDesc: desc + (card.currentPath ? ` (${card.upgradeOptions[card.currentPath]?.description})` : '') };
 };
 
 // --- Components ---
 
-const Button = ({ onClick, children, className = '', variant = 'primary', disabled = false }: any) => {
-  const baseStyle = "px-6 py-3 rounded-xl font-bold transition-all transform active:scale-95 shadow-lg flex items-center justify-center gap-2";
+const Button = ({ onClick, children, variant = 'primary', className = '', disabled = false }: any) => {
+  const baseStyle = "px-6 py-3 rounded-xl font-bold transition-all duration-200 flex items-center justify-center gap-2 active:scale-95";
   const variants = {
-    primary: "bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:brightness-110",
-    secondary: "bg-gray-800 text-gray-200 border border-gray-600 hover:bg-gray-700",
-    outline: "border-2 border-pink-500 text-pink-400 hover:bg-pink-500/10",
-    danger: "bg-gradient-to-r from-red-600 to-red-800 text-white hover:brightness-110"
+    primary: "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-lg shadow-blue-500/30",
+    secondary: "bg-gray-800 hover:bg-gray-700 text-white border border-gray-700",
+    danger: "bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-500/30",
+    outline: "border-2 border-blue-500 text-blue-400 hover:bg-blue-500/10"
   };
   return (
     <button 
       onClick={onClick} 
       disabled={disabled}
-      className={`${baseStyle} ${variants[variant as keyof typeof variants]} ${className} ${disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+      className={`${baseStyle} ${variants[variant as keyof typeof variants]} ${disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''} ${className}`}
     >
       {children}
     </button>
   );
 };
 
-const CardComponent: React.FC<{ card: Card; onClick?: () => void; disabled?: boolean; showUpgrade?: boolean }> = ({ card, onClick, disabled, showUpgrade }) => {
-  const { val, cost, fx, desc, longDesc, name } = getCardStats(card);
+interface CardComponentProps {
+  card: Card;
+  onClick?: () => void;
+  disabled?: boolean;
+  showUpgrade?: boolean;
+  onHover?: (card: Card | null, rect: DOMRect | null) => void;
+  isPlaying?: boolean; 
+}
+
+const CardComponent: React.FC<CardComponentProps> = ({ card, onClick, disabled, showUpgrade, onHover, isPlaying }) => {
+  const { val, cost, fx, desc, name } = getCardStats(card);
   
+  const handleMouseEnter = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isPlaying && onHover) {
+       const rect = e.currentTarget.getBoundingClientRect();
+       onHover(card, rect);
+    }
+  };
+
   return (
-    <div className="relative group z-0 hover:z-50">
-        {/* Card Body */}
+    <div 
+      className={`relative group shrink-0 transition-all duration-500 ${isPlaying ? 'z-[100] pointer-events-none' : 'hover:z-50'}`}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={() => !isPlaying && onHover && onHover(null, null)}
+    >
+        {/* Card Body - Animated Part */}
         <div 
-        onClick={() => !disabled && onClick && onClick()}
+        onClick={() => !disabled && !isPlaying && onClick && onClick()}
         className={`
-            relative w-32 h-48 rounded-xl p-3 flex flex-col justify-between transition-all duration-300 transform 
-            ${disabled ? 'opacity-50 grayscale cursor-not-allowed scale-95' : 'hover:-translate-y-4 hover:shadow-2xl hover:shadow-pink-500/40 cursor-pointer'}
+            relative w-32 h-48 rounded-xl p-3 flex flex-col justify-between transition-all duration-300 transform border-2 will-change-transform
+            ${isPlaying ? 'animate-card-play' : 
+              disabled ? 'opacity-50 grayscale cursor-not-allowed scale-95' : 'hover:-translate-y-4 hover:shadow-2xl hover:shadow-pink-500/40 cursor-pointer hover:scale-105'}
             ${card.currentPath === 'POWER' ? 'bg-red-900/40' : card.currentPath === 'SPEED' ? 'bg-blue-900/40' : card.currentPath === 'SPECIAL' ? 'bg-yellow-900/40' : 'bg-gray-900'}
-            border-2
         `}
         style={{ borderColor: card.color }}
         >
@@ -271,12 +274,19 @@ const CardComponent: React.FC<{ card: Card; onClick?: () => void; disabled?: boo
             {card.type === 'DEFEND' && <Shield size={32} style={{ color: card.color }} />}
             {card.type === 'SKILL' && <Sparkles size={32} style={{ color: card.color }} />}
             
-            {/* Stat Badge (Shield or Damage) */}
+            {/* Stat Badge */}
             {(card.type === 'ATTACK' || card.type === 'DEFEND') && (
                 <div className={`absolute -bottom-2 ${card.type === 'ATTACK' ? 'bg-red-900/90 border-red-500' : 'bg-blue-900/90 border-blue-500'} border text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg z-10 animate-fade-in`}>
                   {card.type === 'ATTACK' ? <Sword size={10} /> : <Shield size={10} />}
                   <span>{val}</span>
                 </div>
+            )}
+            {/* Draw Badge */}
+            {fx === 'DRAW' && (
+                 <div className="absolute -bottom-2 bg-green-900/90 border-green-500 border text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg z-10 animate-fade-in">
+                    <Copy size={10} />
+                    <span>+{val}</span>
+                 </div>
             )}
 
             {/* Upgrade Icon Overlay */}
@@ -293,216 +303,217 @@ const CardComponent: React.FC<{ card: Card; onClick?: () => void; disabled?: boo
             <div className="text-[10px] text-gray-400 leading-tight line-clamp-2">{desc}</div>
         </div>
         </div>
-
-        {/* Hover Tooltip - Detailed Info */}
-        {!disabled && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-56 opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none transform translate-y-2 group-hover:translate-y-0 z-50">
-                <div className="bg-gray-900/95 backdrop-blur-md border border-gray-600 p-3 rounded-xl shadow-2xl text-left">
-                    <div className="flex items-center justify-between mb-2 pb-1 border-b border-gray-700">
-                        <span className="font-bold text-white text-sm">{name}</span>
-                        <span className="text-yellow-400 text-xs font-mono">Cost: {cost}</span>
-                    </div>
-                    <p className="text-xs text-gray-300 leading-relaxed mb-2">
-                        {longDesc}
-                    </p>
-                    <div className="flex gap-2 text-[10px] font-mono text-gray-500 uppercase">
-                        <span className="bg-gray-800 px-1 rounded">{fx}</span>
-                        <span className="bg-gray-800 px-1 rounded">{TYPE_MAP[card.type]}</span>
-                    </div>
-                </div>
-                {/* Arrow */}
-                <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-gray-600 absolute left-1/2 -translate-x-1/2 top-full"></div>
-            </div>
-        )}
     </div>
   );
 };
 
-const CharacterCard: React.FC<{ char: Character }> = ({ char }) => (
-  <div className={`w-48 h-72 rounded-xl relative overflow-hidden flex flex-col shadow-2xl bg-gradient-to-b ${char.avatarColor} border-2 border-white/30 transform hover:scale-105 transition-transform`}>
-    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-30 mix-blend-overlay"></div>
-    <div className="p-4 flex justify-between items-start z-10">
-      <div className="bg-black/40 px-2 py-1 rounded text-xs font-mono text-white backdrop-blur-md border border-white/10">
-        {ELEMENT_MAP[char.element]}
-      </div>
-      <div className={`font-black text-2xl italic ${char.rarity === 'SSR' ? 'text-yellow-400 drop-shadow-[0_0_5px_rgba(250,204,21,0.8)]' : char.rarity === 'SR' ? 'text-purple-300' : 'text-blue-200'}`}>
-        {char.rarity}
-      </div>
+const CharacterCard = ({ char }: { char: Character }) => (
+  <div className="w-48 h-72 bg-gray-800 rounded-xl overflow-hidden border border-gray-600 relative group hover:scale-105 transition-transform">
+    <div className="h-48 bg-gray-700 flex items-center justify-center" style={{ backgroundColor: char.avatarColor }}>
+       <User size={64} className="text-white/50" />
     </div>
-    
-    <div className="flex-1 flex items-center justify-center z-10">
-      <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm shadow-inner">
-         <User size={56} className="text-white filter drop-shadow-lg" />
-      </div>
-    </div>
-
-    <div className="p-4 bg-gradient-to-t from-black/80 to-transparent z-10 pt-12">
-      <h3 className="text-2xl font-bold text-white text-center mb-1">{char.name}</h3>
-      <div className="h-0.5 w-1/2 bg-white/50 mx-auto mb-2"></div>
-      <p className="text-center text-xs text-gray-300">战斗单位 - {char.id.toUpperCase()}</p>
+    <div className="p-3">
+       <div className="flex justify-between items-center mb-1">
+          <span className="font-bold text-white">{char.name}</span>
+          <span className={`text-xs font-bold px-1.5 rounded ${char.rarity === 'SSR' ? 'bg-yellow-500 text-black' : char.rarity === 'SR' ? 'bg-purple-500 text-white' : 'bg-blue-500 text-white'}`}>{char.rarity}</span>
+       </div>
+       <div className="text-xs text-gray-400">{char.desc}</div>
     </div>
   </div>
 );
 
-// --- VFX Component ---
-const EffectLayer = ({ effects }: { effects: VisualEffect[] }) => {
-  if (effects.length === 0) return null;
-
+const EffectLayer: React.FC<{ effects: VisualEffect[] }> = ({ effects }) => {
   return (
-    <div className="absolute inset-0 pointer-events-none z-50 overflow-visible">
-      {effects.map((fx) => (
-        <div key={fx.id} className="absolute inset-0 flex items-center justify-center">
-          
-          {/* SLASH & DOUBLE SLASH */}
-          {(fx.type === 'SLASH' || fx.type === 'DOUBLE_SLASH') && (
-            <div className="relative w-full h-full flex items-center justify-center pointer-events-none">
-              {/* Container rotated for angle */}
-              <div className="absolute w-full h-full flex items-center justify-center rotate-[-35deg]">
-
-                {/* 1. Fast Trajectory Line (The Sword Qi) - Brighter and faster */}
-                <div className="absolute w-[120%] h-[3px] bg-cyan-50 shadow-[0_0_30px_rgba(255,255,255,1)] animate-slash-fast-trace z-40" />
-
-                {/* 2. The Wide Energy Wave (Visual bulk) */}
-                <div className="absolute w-[150%] h-32 bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-0 animate-slash-fast-whoosh mix-blend-screen z-30 transform -skew-x-12" />
-
-                {/* 3. Target Afterimage (The cut mark) - Lingers slightly */}
-                <div className="absolute w-48 h-1 bg-white animate-slash-impact opacity-0 z-50 shadow-[0_0_20px_rgba(34,211,238,0.8)]" />
-                
-                {/* 4. Screen Flash */}
-                <div className="absolute inset-0 bg-cyan-400/20 animate-flash-short mix-blend-overlay" />
-
-                {/* Second Slash for DOUBLE_SLASH */}
-                {fx.type === 'DOUBLE_SLASH' && (
-                  <div className="absolute inset-0 flex items-center justify-center rotate-[70deg] delay-100">
-                      <div className="absolute w-[120%] h-[3px] bg-red-100 shadow-[0_0_30px_rgba(255,100,100,1)] animate-slash-fast-trace z-40 delay-100" />
-                      <div className="absolute w-[150%] h-32 bg-gradient-to-r from-transparent via-red-400 to-transparent opacity-0 animate-slash-fast-whoosh mix-blend-screen z-30 transform -skew-x-12 delay-100" />
+    <div className="absolute inset-0 pointer-events-none z-50 flex items-center justify-center overflow-visible">
+      {effects.map(effect => {
+        let animationClass = '';
+        let content = null;
+        
+        switch(effect.type) {
+            case 'SLASH': 
+                animationClass = 'animate-slash-combo';
+                content = (
+                    <div className="relative w-full h-full flex items-center justify-center z-50">
+                       {/* Primary White Slash */}
+                       <div className="absolute w-[120%] h-2 bg-white shadow-[0_0_50px_white] rotate-[-30deg] animate-slash-core origin-center mix-blend-overlay"></div>
+                       {/* Secondary Color Slash */}
+                       <div className="absolute w-[120%] h-32 bg-gradient-to-r from-transparent via-cyan-500 to-transparent rotate-[-30deg] opacity-0 animate-slash-trail mix-blend-screen"></div>
+                       {/* Impact Distortion */}
+                       <div className="absolute w-full h-full bg-cyan-400/10 mix-blend-color-dodge animate-flash-impact pointer-events-none"></div>
+                    </div>
+                );
+                break;
+            case 'SPIN_SLASH':
+                animationClass = 'animate-spin-slash';
+                content = (
+                    <div className="relative w-96 h-96 flex items-center justify-center animate-spin-fast">
+                         <div className="absolute w-full h-2 bg-pink-500 shadow-[0_0_20px_pink] top-1/2 -translate-y-1/2"></div>
+                         <div className="absolute h-full w-2 bg-pink-500 shadow-[0_0_20px_pink] left-1/2 -translate-x-1/2"></div>
+                         <div className="absolute w-64 h-64 border-4 border-pink-400 rounded-full opacity-60 blur-sm"></div>
+                    </div>
+                );
+                break;
+            case 'EXPLOSION':
+                animationClass = 'animate-explosion-anim';
+                content = (
+                  <div className="relative w-full h-full flex items-center justify-center z-50">
+                     {/* Core Flash */}
+                     <div className="absolute w-32 h-32 bg-white rounded-full animate-ping opacity-80 z-40"></div>
+                     {/* Shockwave 1 */}
+                     <div className="absolute w-64 h-64 rounded-full border-[40px] border-orange-500/60 animate-shockwave-fast z-30"></div>
+                     {/* Shockwave 2 (Delayed) */}
+                     <div className="absolute w-64 h-64 rounded-full border-[20px] border-red-500/40 animate-shockwave-slow scale-50 z-20"></div>
+                     {/* Glow */}
+                     <div className="absolute w-[200%] h-[200%] bg-radial-gradient from-orange-500/20 to-transparent animate-fade-out z-10"></div>
                   </div>
-                )}
-              </div>
-            </div>
-          )}
+                );
+                break;
+            case 'HEAL':
+                animationClass = 'animate-heal-pulse'; 
+                content = (
+                  <div className="relative w-full h-full flex items-center justify-center z-50">
+                      {/* Aura */}
+                      <div className="absolute w-64 h-64 bg-green-400/20 rounded-full blur-2xl animate-heal-pulse"></div>
+                      <div className="absolute w-48 h-48 border-2 border-green-400/50 rounded-full animate-heal-ring opacity-0"></div>
+                      
+                      {/* Particles */}
+                      <div className="absolute w-2 h-2 bg-green-300 rounded-full animate-heal-particle-1 opacity-0 shadow-[0_0_10px_#86efac]" style={{bottom: '30%', left: '45%'}}></div>
+                      <div className="absolute w-3 h-3 bg-green-200 rounded-full animate-heal-particle-2 opacity-0 shadow-[0_0_10px_#bbf7d0]" style={{bottom: '40%', left: '60%'}}></div>
+                      <div className="absolute w-2 h-2 bg-green-400 rounded-full animate-heal-particle-3 opacity-0 shadow-[0_0_10px_#4ade80]" style={{bottom: '20%', left: '55%'}}></div>
 
-          {/* EXPLOSION */}
-          {fx.type === 'EXPLOSION' && (
-            <div className="relative w-full h-full flex items-center justify-center">
-               {/* 1. Instant White Flash Center - High intensity */}
-               <div className="absolute w-2 h-2 bg-white rounded-full animate-explosion-flash z-50 shadow-[0_0_80px_rgba(255,255,255,1)]" />
+                      {/* Text Icon */}
+                      <div className="relative z-10 flex flex-col items-center animate-float-up-1">
+                          <Sparkles size={48} className="text-green-300 filter drop-shadow-[0_0_15px_#4ade80]" />
+                          <span className="text-3xl font-bold text-green-300 shadow-black drop-shadow-md">+HP</span>
+                      </div>
+                  </div>
+                );
+                break;
+            case 'BLOCK':
+                animationClass = 'animate-shield-deploy';
+                content = (
+                  <div className="relative w-64 h-64 flex items-center justify-center">
+                     {/* Hex grid bg simulation */}
+                     <div className="absolute inset-0 bg-blue-500/10 rounded-full border-2 border-blue-400 animate-pulse-fast backdrop-blur-sm"></div>
+                     <div className="absolute inset-0 border border-blue-300/30 rounded-full scale-110 opacity-50"></div>
+                     <Shield size={80} className="text-blue-200 z-10 filter drop-shadow-[0_0_10px_blue]" />
+                  </div>
+                );
+                break;
+            case 'BUFF_AURA':
+                animationClass = 'animate-halo-rise';
+                content = (
+                    <div className="relative w-full h-full flex items-center justify-center">
+                        <div className="w-56 h-56 rounded-full border-4 border-yellow-400 opacity-0 animate-expand-ring"></div>
+                        <div className="absolute w-full h-full bg-gradient-to-t from-yellow-500/30 to-transparent"></div>
+                    </div>
+                );
+                break;
+            case 'THUNDER':
+                animationClass = 'animate-thunder-strike';
+                content = (
+                    <div className="relative w-full h-full flex items-center justify-center z-50">
+                       {/* Main Bolt - Blue/Cyan */}
+                       <svg viewBox="0 0 100 200" className="absolute w-64 h-[150%] top-[-50%] drop-shadow-[0_0_20px_#06b6d4] animate-thunder-bolt" preserveAspectRatio="none">
+                          {/* Core jagged line */}
+                          <path d="M50,0 L45,20 L55,20 L40,50 L60,50 L30,90 L70,90 L40,140 L60,140 L50,200" fill="none" stroke="#67e8f9" strokeWidth="4" strokeLinejoin="round" />
+                          {/* Branches */}
+                          <path d="M40,50 L20,70" fill="none" stroke="#22d3ee" strokeWidth="2" strokeLinejoin="round" opacity="0.6" />
+                          <path d="M60,140 L80,160" fill="none" stroke="#22d3ee" strokeWidth="2" strokeLinejoin="round" opacity="0.6" />
+                       </svg>
+                       
+                       {/* Screen Flash - Blue Tint */}
+                       <div className="absolute inset-0 bg-cyan-100/40 animate-flash-short mix-blend-overlay"></div>
+                       
+                       {/* Impact Arc */}
+                       <div className="absolute bottom-10 w-40 h-10 bg-cyan-400/50 blur-xl rounded-full animate-impact-glow"></div>
+                       <div className="absolute bottom-10 w-full h-full flex items-end justify-center pointer-events-none">
+                           <div className="w-48 h-12 border-2 border-cyan-300 rounded-[100%] animate-electric-ring opacity-0 scale-0"></div>
+                       </div>
+                    </div>
+                );
+                break;
+            case 'ICE_NOVA':
+                 animationClass = 'animate-ice-shatter';
+                 content = (
+                    <div className="relative w-64 h-64 flex items-center justify-center">
+                        <Snowflake size={140} className="text-cyan-100 filter drop-shadow-[0_0_20px_cyan]" />
+                        <div className="absolute inset-0 border-4 border-cyan-200 rounded-full animate-ping opacity-60"></div>
+                        <div className="absolute w-full h-full bg-cyan-500/20 blur-xl rounded-full animate-pulse"></div>
+                    </div>
+                 );
+                 break;
+            case 'DRAW':
+                 animationClass = 'animate-float-up-2';
+                 content = <div className="text-emerald-300 font-black text-3xl flex items-center gap-2 filter drop-shadow-[0_0_10px_rgba(16,185,129,1)]"><Copy size={36}/> DRAW</div>;
+                 break;
+            case 'LASER':
+                 animationClass = 'animate-laser-shoot';
+                 content = (
+                    <div className="relative w-[1000px] h-32 flex items-center origin-left">
+                        {/* Core Beam */}
+                        <div className="absolute left-0 w-full h-6 bg-white shadow-[0_0_40px_blue] z-20"></div>
+                        {/* Outer Glow */}
+                        <div className="absolute left-0 w-full h-24 bg-blue-600/40 blur-xl z-10"></div>
+                        {/* Particles */}
+                        <div className="absolute left-0 w-full h-full opacity-50 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPjxjaXJjbGUgY3g9IjIiIGN5PSIyIiByPSIxIiBmaWxsPSIjZmZmIi8+PC9zdmc+')]"></div>
+                    </div>
+                 );
+                 break;
+            case 'VOID':
+                 animationClass = 'animate-void-implode';
+                 content = (
+                     <div className="relative w-80 h-80 flex items-center justify-center">
+                         <div className="absolute w-full h-full bg-purple-950/80 rounded-full blur-2xl animate-pulse"></div>
+                         <div className="absolute w-56 h-56 border-2 border-purple-500 rounded-full animate-spin-slow-reverse dashed"></div>
+                         <Skull size={80} className="text-purple-200 z-10 filter drop-shadow-[0_0_20px_purple]" />
+                     </div>
+                 );
+                 break;
+            case 'DRAIN':
+                 animationClass = 'animate-drain-soul';
+                 content = (
+                     <div className="relative w-full h-full flex items-center justify-center">
+                         <div className="absolute w-4 h-4 bg-red-600 rounded-full shadow-[0_0_30px_red] animate-ping"></div>
+                         <Droplets size={64} className="text-red-500 fill-red-700 filter drop-shadow-[0_0_15px_red]" />
+                     </div>
+                 );
+                 break;
+        }
 
-               {/* 2. Expanding Shockwave Ring (Orange) - Fast linear expansion */}
-               <div className="absolute w-10 h-10 border-4 border-orange-500 rounded-full animate-explosion-ring opacity-0 z-40" />
-
-               {/* 3. Wide Halo (Yellow) - Slower bloom */}
-               <div className="absolute w-10 h-10 border-[20px] border-yellow-200/40 rounded-full animate-explosion-halo opacity-0 z-30" />
-
-               {/* 4. Fireball Core */}
-               <div className="absolute w-32 h-32 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-300 rounded-full animate-explosion-expand opacity-90 mix-blend-screen" />
-               
-               {/* 5. Screen Tint */}
-               <div className="absolute inset-0 bg-orange-100/30 animate-flash-instant mix-blend-overlay" />
-            </div>
-          )}
-
-          {/* THUNDER */}
-          {fx.type === 'THUNDER' && (
-            <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
-               <div className="absolute inset-0 bg-yellow-100/30 animate-flash-short mix-blend-overlay" />
-               <Zap className="text-yellow-300 absolute top-0 w-32 h-[120%] animate-thunder-strike filter drop-shadow-[0_0_20px_rgba(253,224,71,0.8)]" strokeWidth={1} fill="currentColor" />
-               <Zap className="text-white absolute top-0 w-16 h-[120%] animate-thunder-strike delay-75 filter drop-shadow-[0_0_10px_white]" strokeWidth={2} />
-            </div>
-          )}
-
-          {/* LASER */}
-          {fx.type === 'LASER' && (
-             <div className="relative w-full h-full flex items-center justify-center">
-                <div className="absolute h-4 w-full bg-cyan-400 blur-md animate-laser-beam mix-blend-screen origin-left" />
-                <div className="absolute h-1 w-full bg-white animate-laser-beam origin-left" />
-                <div className="absolute inset-0 bg-cyan-500/20 animate-flash-short" />
-             </div>
-          )}
-
-          {/* ICE_NOVA */}
-          {fx.type === 'ICE_NOVA' && (
-             <div className="relative w-full h-full flex items-center justify-center">
-                <div className="absolute inset-0 bg-blue-200/20 animate-flash-instant" />
-                <Snowflake size={128} className="text-blue-100 animate-ice-shatter filter drop-shadow-[0_0_15px_rgba(59,130,246,0.8)]" />
-                <div className="absolute w-full h-full border-4 border-blue-200 rounded-full animate-shockwave" />
-             </div>
-          )}
-
-          {/* BUFF_AURA */}
-          {fx.type === 'BUFF_AURA' && (
-             <div className="relative w-full h-full flex items-center justify-center">
-                 <div className="absolute w-32 h-32 border-2 border-yellow-300 rounded-full animate-spin-slow opacity-50" style={{ borderStyle: 'dashed' }} />
-                 <div className="absolute w-24 h-24 bg-yellow-500/20 rounded-full animate-pulse-fade" />
-                 <ArrowUpCircle size={48} className="text-yellow-300 animate-float-up-1" />
-             </div>
-          )}
-
-          {/* VOID DRAIN */}
-          {fx.type === 'VOID_DRAIN' && (
-             <div className="relative w-full h-full flex items-center justify-center">
-                 <div className="absolute w-48 h-48 bg-purple-900/40 rounded-full animate-ping opacity-50" />
-                 <div className="absolute w-full h-full bg-black/20 animate-flash-short" />
-                 <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-explosion-ring" style={{ borderColor: '#8b5cf6' }}/>
-                 </div>
-                 {/* Life orbs flying to player */}
-                 <div className="absolute w-4 h-4 bg-red-500 rounded-full animate-float-up-2 shadow-[0_0_10px_red]" style={{left: '40%'}}/>
-                 <div className="absolute w-3 h-3 bg-red-500 rounded-full animate-float-up-1 shadow-[0_0_10px_red]" style={{left: '60%'}}/>
-             </div>
-          )}
-
-          {/* SHIELD */}
-          {fx.type === 'SHIELD' && (
-            <div className="relative w-full h-full flex items-center justify-center animate-shield-deploy">
-               <div className="w-40 h-40 border-2 border-blue-400/60 bg-blue-600/20 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(37,99,235,0.5)] backdrop-blur-sm relative overflow-hidden">
-                  <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle, #3b82f6 2px, transparent 2px)', backgroundSize: '10px 10px' }}></div>
-                  <Shield size={64} className="text-blue-100 z-10 animate-pulse drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]" fill="currentColor" />
-               </div>
-               <div className="absolute w-48 h-48 border-t-2 border-b-2 border-cyan-300/40 rounded-full animate-spin-slow" />
-            </div>
-          )}
-
-          {/* HEAL */}
-          {fx.type === 'HEAL' && (
-            <div className="relative w-full h-full">
-               <div className="absolute bottom-12 left-1/2 -translate-x-1/2 animate-float-up-1 text-green-400 filter drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]">
-                  <Heart size={40} fill="currentColor" />
-               </div>
-               <div className="absolute bottom-8 right-1/3 animate-float-up-3 text-emerald-200 font-bold font-mono text-xl shadow-black drop-shadow-md">+HP</div>
-               <div className="absolute inset-0 bg-green-500/10 animate-pulse-fade rounded-xl" />
-            </div>
-          )}
-
-          {/* HIT */}
-          {fx.type === 'HIT' && (
-             <div className="absolute inset-0 bg-red-600/40 animate-flash-hit rounded-xl mix-blend-overlay" />
-          )}
-        </div>
-      ))}
+        return (
+          <div key={effect.id} className={`absolute inset-0 flex items-center justify-center ${animationClass}`}>
+            {content}
+          </div>
+        );
+      })}
     </div>
   );
 };
-
 
 // --- Main App ---
 
 const App = () => {
   const [screen, setScreen] = useState<GameScreen>('MENU');
   
-  // Player Data
-  const [deck, setDeck] = useState<Card[]>([]);
-  const [upgradePoints, setUpgradePoints] = useState(0); // Currency for upgrades
+  // Player Data (Collection)
+  const [collection, setCollection] = useState<Card[]>([]);
+  const [upgradePoints, setUpgradePoints] = useState(0);
 
   // Battle State
   const [playerHp, setPlayerHp] = useState(INITIAL_PLAYER_HP);
   const [enemyHp, setEnemyHp] = useState(INITIAL_ENEMY_HP);
   const [playerShield, setPlayerShield] = useState(0);
-  const [enemyShield, setEnemyShield] = useState(0); // New: Enemy Shield
-  const [enemyFrozen, setEnemyFrozen] = useState(false); // New: Enemy Frozen Status
+  const [enemyShield, setEnemyShield] = useState(0); 
+  const [enemyFrozen, setEnemyFrozen] = useState(false); 
   
   const [energy, setEnergy] = useState(STARTING_ENERGY);
+  
+  // Deck State (Battle)
+  const [drawPile, setDrawPile] = useState<Card[]>([]);
   const [hand, setHand] = useState<Card[]>([]);
+  const [discardPile, setDiscardPile] = useState<Card[]>([]);
+
   const [turn, setTurn] = useState<'PLAYER' | 'ENEMY'>('PLAYER');
   const [battleLog, setBattleLog] = useState<string[]>([]);
   
@@ -518,28 +529,58 @@ const App = () => {
 
   // Deck Management State
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  
+  // Battle UI State
+  const [hoveredCard, setHoveredCard] = useState<Card | null>(null);
+  const [hoveredCardRect, setHoveredCardRect] = useState<DOMRect | null>(null);
+  const [playingCards, setPlayingCards] = useState<Set<string>>(new Set());
 
   // FX
   const [shake, setShake] = useState(false);
 
   // --- Init ---
   useEffect(() => {
-    // Init starter deck
+    // Init starter collection
     const starterDeck = [
       createCard(CARD_TEMPLATES[0]), // Slash
+      createCard(CARD_TEMPLATES[0]),
       createCard(CARD_TEMPLATES[0]),
       createCard(CARD_TEMPLATES[1]), // Shield
       createCard(CARD_TEMPLATES[1]),
       createCard(CARD_TEMPLATES[2]), // Thunder
       createCard(CARD_TEMPLATES[3]), // Buff
+      createCard(CARD_TEMPLATES[9]), // Draw 2 (c11 in index 9)
     ];
-    setDeck(starterDeck);
+    setCollection(starterDeck);
   }, []);
 
   // --- Helpers ---
-  const getRandomCards = (count: number) => {
-    if (deck.length === 0) return [];
-    return Array.from({ length: count }, () => deck[Math.floor(Math.random() * deck.length)]);
+  const shuffle = (array: Card[]) => {
+      let currentIndex = array.length,  randomIndex;
+      while (currentIndex != 0) {
+        randomIndex = Math.floor(Math.random() * currentIndex);
+        currentIndex--;
+        [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+      }
+      return array;
+  };
+
+  const drawCards = (count: number, currentDrawPile: Card[], currentHand: Card[]) => {
+      const drawn: Card[] = [];
+      let newDrawPile = [...currentDrawPile];
+      
+      for (let i = 0; i < count; i++) {
+          if (newDrawPile.length > 0) {
+              drawn.push(newDrawPile.shift()!);
+          } else {
+              break; // No recycle
+          }
+      }
+      return {
+          newHand: [...currentHand, ...drawn],
+          newDrawPile: newDrawPile,
+          drawnCount: drawn.length
+      };
   };
 
   const addLog = (msg: string) => {
@@ -551,7 +592,7 @@ const App = () => {
     setActiveEffects(prev => [...prev, { id, type, target }]);
     setTimeout(() => {
         setActiveEffects(prev => prev.filter(e => e.id !== id));
-    }, 1200);
+    }, 800); // Shortened duration for snappier feel
   };
 
   const spawnDamage = (value: string | number, target: 'PLAYER' | 'ENEMY', isCrit: boolean = false) => {
@@ -567,13 +608,37 @@ const App = () => {
     if (upgradePoints < 1) return; // Check cost
 
     setUpgradePoints(prev => prev - 1);
-    setDeck(prev => prev.map(c => {
+    setCollection(prev => prev.map(c => {
       if (c.uid === cardUid) {
         return { ...c, currentPath: path, level: 2 };
       }
       return c;
     }));
     setSelectedCardId(null); // Close modal
+  };
+
+  const handleEndTurn = () => {
+    if (turn === 'PLAYER') {
+       setTurn('ENEMY');
+    }
+  };
+
+  const pullGacha = () => {
+    const char = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];
+    setLastPulledChar(char);
+    // Also give a random card
+    const randomTemplate = CARD_TEMPLATES[Math.floor(Math.random() * CARD_TEMPLATES.length)];
+    setCollection(prev => [...prev, createCard(randomTemplate)]);
+  };
+
+  const claimReward = (type: 'CARD' | 'POINT') => {
+    if (type === 'CARD' && rewardCard) {
+        setCollection(prev => [...prev, rewardCard]);
+    } else {
+        setUpgradePoints(prev => prev + 1);
+    }
+    setScreen('MENU');
+    setRewardCard(null);
   };
 
   // --- Auto-Skip Logic ---
@@ -587,18 +652,96 @@ const App = () => {
 
       // If no cards are playable (either due to cost or empty hand), end turn automatically
       if ((!hasPlayableCard && hand.length > 0) || hand.length === 0) {
+        // Wait a bit if we are currently animating cards to finish
+        const waitTime = playingCards.size > 0 ? 1500 : 1500;
+        
         const timer = setTimeout(() => {
-           if (hand.length === 0) {
+           // Double check after delay
+           if (playingCards.size > 0) return; 
+
+           if (hand.length === 0 && drawPile.length === 0) {
+             addLog("⚠️ 弹尽粮绝，回合结束");
+           } else if (hand.length === 0) {
              addLog("⚠️ 手牌耗尽，回合结束");
            } else {
              addLog("⚠️ 能量不足，回合结束");
            }
            setTurn('ENEMY');
-        }, 1500);
+        }, waitTime);
         return () => clearTimeout(timer);
       }
     }
-  }, [turn, hand, energy, screen]);
+  }, [turn, hand, energy, screen, playingCards.size, drawPile.length]); 
+
+  // --- Enemy Turn AI ---
+  useEffect(() => {
+    if (turn === 'ENEMY' && screen === 'BATTLE') {
+        const timer = setTimeout(() => {
+            if (enemyFrozen) {
+                addLog("敌人被冻结，无法行动！");
+                setEnemyFrozen(false);
+            } else {
+                // Enemy Action
+                const action = Math.random() > 0.3 ? 'ATTACK' : 'DEFEND';
+                
+                if (action === 'ATTACK') {
+                    const dmg = Math.floor(Math.random() * 10) + 8;
+                    let actualDmg = dmg;
+                    
+                    if (playerShield > 0) {
+                        if (playerShield >= dmg) {
+                            setPlayerShield(prev => prev - dmg);
+                            actualDmg = 0;
+                            addLog(`敌人攻击！护盾抵挡了伤害`);
+                        } else {
+                            actualDmg = dmg - playerShield;
+                            setPlayerShield(0);
+                            addLog(`敌人攻击！造成了 ${actualDmg} 伤害`);
+                        }
+                    } else {
+                        addLog(`敌人攻击！造成了 ${actualDmg} 伤害`);
+                    }
+
+                    if (actualDmg > 0) {
+                        setPlayerHp(prev => prev - actualDmg);
+                        spawnDamage(actualDmg, 'PLAYER');
+                        triggerEffect('SLASH', 'PLAYER');
+                    } else {
+                        spawnDamage('格挡', 'PLAYER');
+                    }
+                } else {
+                    const shield = 10;
+                    setEnemyShield(prev => prev + shield);
+                    addLog("敌人强化了防御");
+                    triggerEffect('BLOCK', 'ENEMY');
+                }
+            }
+
+            // End Enemy Turn & Start Player Turn
+            setTurn('PLAYER');
+            setEnergy(STARTING_ENERGY);
+            
+            // Draw 2 cards for new turn (or 0 if empty)
+            setDrawPile(prevPile => {
+                const res = drawCards(2, prevPile, hand); // Pass current hand to retain cards
+                setHand(res.newHand);
+                if (res.drawnCount === 0) addLog("牌库已空，无法抽牌！");
+                else addLog(`回合开始，抽${res.drawnCount}张牌`);
+                return res.newDrawPile;
+            });
+
+            // Decay Shield slightly
+            setPlayerShield(prev => Math.floor(prev * 0.5));
+
+            // Check Defeat
+            if (playerHp <= 0) {
+                setScreen('DEFEAT');
+            }
+
+        }, 2000);
+        return () => clearTimeout(timer);
+    }
+  }, [turn, screen, enemyFrozen, playerShield, playerHp]); // Removed hand dependency to avoid loop
 
   // --- Battle Logic ---
 
@@ -609,32 +752,79 @@ const App = () => {
     setEnemyShield(0);
     setEnemyFrozen(false);
     setEnergy(STARTING_ENERGY);
-    setHand(getRandomCards(3));
+    
+    // Setup Deck (Finite)
+    // Ensure deck has exactly 30 cards for battle by filling with random cards if needed
+    let deckCards = [...collection];
+    
+    while (deckCards.length < MAX_DECK_SIZE) {
+        const randomTemplate = CARD_TEMPLATES[Math.floor(Math.random() * CARD_TEMPLATES.length)];
+        deckCards.push(createCard(randomTemplate));
+    }
+
+    const battleDeck = shuffle(deckCards).slice(0, MAX_DECK_SIZE); 
+    const initialDraw = drawCards(3, battleDeck, []);
+    
+    setDrawPile(initialDraw.newDrawPile);
+    setHand(initialDraw.newHand);
+    setDiscardPile([]);
+
     setTurn('PLAYER');
     setBattleLog(['战斗开始！']);
     setScreen('BATTLE');
     setActiveEffects([]);
     setDamageNumbers([]);
+    setHoveredCard(null);
+    setPlayingCards(new Set());
   };
 
-  const playCard = async (card: Card) => {
+  const playCard = (card: Card) => {
     if (turn !== 'PLAYER' || energy < getCardStats(card).cost) return;
-    
+    if (playingCards.has(card.uid)) return; // Prevent double click
+
+    // 1. Trigger Animation
+    setPlayingCards(prev => new Set(prev).add(card.uid));
+    setHoveredCard(null);
+
+    // 2. Pay Cost Immediately
+    const stats = getCardStats(card);
+    setEnergy(prev => prev - stats.cost);
+
+    // 3. Delayed Logic Execution (Sync with CSS animation)
+    setTimeout(() => {
+        executeCardLogic(card);
+        // Move to Discard
+        setHand(prev => prev.filter(c => c.uid !== card.uid));
+        setDiscardPile(prev => [...prev, card]);
+
+        setPlayingCards(prev => {
+            const next = new Set(prev);
+            next.delete(card.uid);
+            return next;
+        });
+    }, 300); // Shorter delay matches new animation speed
+  };
+
+  const executeCardLogic = (card: Card) => {
     const stats = getCardStats(card);
     
     // Player Action
     addLog(`你使用了 ${stats.name}！`);
-    setEnergy(prev => prev - stats.cost);
     
     // -- ATTACK LOGIC --
     if (card.type === 'ATTACK') {
       let damage = stats.val;
       let isTrueDamage = false;
 
-      // Special: Double Slash (c1 / c6)
+      // Special: Double Slash
       if (card.currentPath === 'SPECIAL' && (card.id === 'c1' || card.id === 'c6')) {
          damage = Math.floor(damage * 2);
          addLog("双星连斩！200%伤害");
+      }
+      // Special: Double Spin (c6)
+      if (card.currentPath === 'SPECIAL' && card.id === 'c6') {
+         // Logic for multi-hit usually involves loop, here simplified
+         damage = Math.floor(damage * 2);
       }
 
       // Special: Execute (c5)
@@ -642,14 +832,8 @@ const App = () => {
          if (enemyHp < 30) {
             damage = 999;
             addLog("聚变打击！斩杀！");
-            triggerEffect('EXPLOSION', 'ENEMY'); // Extra Boom
+            triggerEffect('EXPLOSION', 'ENEMY');
          }
-      }
-
-      // Special: Pierce (c3 / c9)
-      if ((card.currentPath === 'SPECIAL' && card.id === 'c3') || (card.currentPath === 'SPECIAL' && card.id === 'c9')) {
-         isTrueDamage = true;
-         addLog("高能光束！无视护盾");
       }
 
       // Apply Damage vs Shield
@@ -663,15 +847,13 @@ const App = () => {
             actualDmg = damage - enemyShield;
             setEnemyShield(0);
          }
-      } else if (isTrueDamage && enemyShield > 0) {
-        // Visual effect of breaking shield maybe?
       }
 
       if (actualDmg > 0) {
         setEnemyHp(prev => prev - actualDmg);
         setShake(true);
         setTimeout(() => setShake(false), 300);
-        spawnDamage(actualDmg, 'ENEMY', damage > 15 || isTrueDamage || (card.currentPath === 'SPECIAL' && card.id === 'c5'));
+        spawnDamage(actualDmg, 'ENEMY', damage > 15 || isTrueDamage);
       } else {
         spawnDamage('格挡', 'ENEMY');
       }
@@ -679,8 +861,7 @@ const App = () => {
       // Special: Life Drain (c7)
       if (card.id === 'c7') {
          setPlayerHp(prev => Math.min(prev + actualDmg, INITIAL_PLAYER_HP));
-         triggerEffect('HEAL', 'PLAYER');
-         addLog(`虹吸！恢复了 ${actualDmg} 生命`);
+         triggerEffect('DRAIN', 'PLAYER');
       }
 
       triggerEffect(stats.fx, 'ENEMY');
@@ -690,7 +871,6 @@ const App = () => {
       setPlayerShield(prev => prev + stats.val);
       triggerEffect(stats.fx, 'PLAYER');
       
-      // Special: Freeze (c2)
       if (card.currentPath === 'SPECIAL' && card.id === 'c2') {
         setEnemyFrozen(true);
         addLog("寒气侵袭！敌人被冻结");
@@ -699,152 +879,57 @@ const App = () => {
     } 
     // -- SKILL LOGIC --
     else if (card.type === 'SKILL') {
-       // Special: Energy Conversion (c10)
-       if (card.id === 'c10') {
-           // Lose 10 HP (or 15 for upgrade)
-           const hpCost = (card.currentPath === 'POWER') ? 15 : (card.currentPath === 'SPEED' ? 5 : 10);
-           const energyGain = (card.currentPath === 'POWER') ? 3 : (card.currentPath === 'SPEED' ? 1 : 2);
-
-           setPlayerHp(prev => Math.max(1, prev - hpCost));
-           setEnergy(prev => prev + energyGain);
-           addLog(`牺牲 ${hpCost} 生命，获得能量`);
-           triggerEffect('BUFF_AURA', 'PLAYER');
+       if (stats.fx === 'DRAW') {
+           const count = stats.val;
+           // Logic to draw cards immediately
+           let drawnCount = 0;
+           setDrawPile(prev => {
+               const copy = [...prev];
+               const drawn: Card[] = [];
+               for(let i=0; i<count; i++) {
+                   if(copy.length > 0) drawn.push(copy.shift()!);
+               }
+               drawnCount = drawn.length;
+               if(drawn.length > 0) {
+                   setHand(h => [...h, ...drawn]);
+               }
+               return copy;
+           });
+           addLog(`战术补给！抽 ${count} 张牌`);
+           triggerEffect('DRAW', 'PLAYER');
        }
-       // Special: Heal + Energy (c4)
-       else if (card.id === 'c4' && card.currentPath === 'SPECIAL') {
-           setPlayerHp(prev => Math.min(prev + stats.val, INITIAL_PLAYER_HP));
-           // No upper limit check anymore
-           setEnergy(prev => prev + 1); 
-           triggerEffect('HEAL', 'PLAYER');
-       }
-       else if (stats.fx === 'HEAL') {
-         setPlayerHp(prev => Math.min(prev + stats.val, INITIAL_PLAYER_HP));
-         triggerEffect('HEAL', 'PLAYER');
-       } 
        else if (stats.fx === 'BUFF_AURA') {
          let energyGain = stats.val > 0 ? stats.val : 1;
-         // Note: c4 baseValue is now 1 (set in templates), so base energyGain is 1.
-         
-         setEnergy(prev => prev + energyGain); // Remove cap
+         setEnergy(prev => prev + energyGain);
          triggerEffect('BUFF_AURA', 'PLAYER');
-         
-         if (card.currentPath === 'SPEED' && card.id === 'c4') {
-            setPlayerHp(prev => prev - 5); // Cost life
-            addLog("过载！受到反噬伤害");
-         }
-      }
+       }
+       else if (stats.fx === 'HEAL') {
+           setPlayerHp(prev => Math.min(prev + stats.val, INITIAL_PLAYER_HP));
+           triggerEffect('HEAL', 'PLAYER');
+       }
+       else if (stats.fx === 'VOID') {
+           setPlayerHp(prev => Math.max(1, prev - 10));
+           setEnergy(prev => prev + 2);
+           addLog("禁忌契约：牺牲生命获得能量");
+           triggerEffect('VOID', 'PLAYER');
+       }
     }
 
-    // Check Win (Early check)
-    if (enemyHp <= 0) { // Note: state update is async, this checks old value mostly, but good for instant kills
-      // Effect might execute next render loop properly
-    }
-
-    setHand(prev => prev.filter(c => c.uid !== card.uid)); // Remove played card instance
-    
-    // We do NOT automatically end turn anymore, waiting for player to use all energy
-    // The Auto-Skip useEffect will handle the turn switch
+    // Check Win Condition (Delayed)
+    // Handled in useEffect
   };
-
-  // Check Win/Loss Effect
+  
+  // Check Win Condition Effect
   useEffect(() => {
-     if (enemyHp <= 0 && screen === 'BATTLE') {
-        // Generate Reward
-        const randomTemplate = CARD_TEMPLATES[Math.floor(Math.random() * CARD_TEMPLATES.length)];
-        setRewardCard(createCard(randomTemplate));
-        
-        setTimeout(() => setScreen('REWARD'), 800);
-     }
-     if (playerHp <= 0 && screen === 'BATTLE') {
-         setTimeout(() => setScreen('DEFEAT'), 800);
-     }
-  }, [enemyHp, playerHp, screen]);
-
-  // Enemy Turn AI
-  useEffect(() => {
-    if (turn === 'ENEMY' && screen === 'BATTLE' && enemyHp > 0) {
-      const timer = setTimeout(() => {
-        
-        // Frozen Check
-        if (enemyFrozen) {
-             addLog("敌人处于冻结状态！跳过回合");
-             triggerEffect('ICE_NOVA', 'ENEMY'); // Visual reminder
-             setEnemyFrozen(false);
-             
-             // End Turn -> Start Player Turn
-             setTurn('PLAYER');
-             setEnergy(STARTING_ENERGY); // Reset Energy
-             setHand(getRandomCards(3));
-             setPlayerShield(0);
-             return;
-        }
-
-        // Simple AI: 70% Attack, 30% Defend
-        const action = Math.random() > 0.3 ? 'ATTACK' : 'DEFEND';
-        
-        if (action === 'ATTACK') {
-          const dmg = 12;
-          triggerEffect('SLASH', 'PLAYER'); // Enemy visual attack
-          triggerEffect('HIT', 'PLAYER');
-
-          let actualDmg = dmg;
-          
-          if (playerShield > 0) {
-            if (playerShield >= dmg) {
-              setPlayerShield(prev => prev - dmg);
-              actualDmg = 0;
-            } else {
-              actualDmg = dmg - playerShield;
-              setPlayerShield(0);
-            }
-          }
-          
-          if (actualDmg > 0) {
-            setPlayerHp(prev => prev - actualDmg);
-            spawnDamage(actualDmg, 'PLAYER');
-          } else {
-            spawnDamage('格挡', 'PLAYER');
-          }
-          addLog(`敌人造成了 ${dmg} 点伤害！`);
-        } else {
-          // Defend Logic
-          const shieldGain = 10;
-          setEnemyShield(prev => prev + shieldGain);
-          triggerEffect('SHIELD', 'ENEMY');
-          addLog(`敌人强化了防御，护盾+${shieldGain}`);
-        }
-
-        // End Enemy Turn -> Start Player Turn
-        setTurn('PLAYER');
-        setHand(getRandomCards(3));
-        setPlayerShield(0); // Player Shields expire
-        setEnergy(STARTING_ENERGY); // Reset Energy for next turn
-
-      }, 1500); // Delay for dramatic effect
-
-      return () => clearTimeout(timer);
+    if (screen === 'BATTLE' && enemyHp <= 0) {
+        setScreen('VICTORY');
+        setTimeout(() => {
+             const randomTemplate = CARD_TEMPLATES[Math.floor(Math.random() * CARD_TEMPLATES.length)];
+             setRewardCard(createCard(randomTemplate));
+             setScreen('REWARD');
+        }, 2000);
     }
-  }, [turn, screen, playerHp, playerShield, enemyFrozen, enemyHp]);
-
-  // --- Gacha Logic ---
-  const pullGacha = () => {
-    const char = CHARACTERS_POOL[Math.floor(Math.random() * CHARACTERS_POOL.length)];
-    const cardTemplate = CARD_TEMPLATES[Math.floor(Math.random() * CARD_TEMPLATES.length)];
-    setDeck(prev => [...prev, createCard(cardTemplate)]); // Add new card to deck
-    setLastPulledChar(char);
-  };
-
-  // --- Reward Logic ---
-  const claimReward = (choice: 'CARD' | 'POINT') => {
-      if (choice === 'CARD' && rewardCard) {
-          setDeck(prev => [...prev, rewardCard]);
-      } else if (choice === 'POINT') {
-          setUpgradePoints(prev => prev + 1);
-      }
-      setScreen('VICTORY');
-  };
-
-  // --- Renders ---
+  }, [enemyHp, screen]);
 
   const renderMenu = () => (
     <div className="flex flex-col items-center justify-center h-full space-y-8 animate-fade-in relative z-10">
@@ -868,20 +953,20 @@ const App = () => {
       </div>
 
       <div className="absolute bottom-8 text-xs text-gray-500 font-mono">
-        ver 1.1.0 | Deck: {deck.length} Cards
+        ver 1.1.0 | Deck: {collection.length} Cards
       </div>
     </div>
   );
 
   const renderDeckScreen = () => {
-    const selectedCard = deck.find(c => c.uid === selectedCardId);
+    const selectedCard = collection.find(c => c.uid === selectedCardId);
 
     return (
       <div className="flex flex-col h-full bg-[#0f0f1a] relative z-20">
         <div className="p-4 flex items-center justify-between border-b border-gray-700 bg-gray-900/80 backdrop-blur">
           <Button onClick={() => setScreen('MENU')} variant="outline" className="py-2 px-4 text-sm">返回</Button>
           <div className="flex flex-col items-center">
-             <h2 className="text-xl font-bold text-white">卡组管理 ({deck.length})</h2>
+             <h2 className="text-xl font-bold text-white">卡组管理 ({collection.length})</h2>
              <div className="text-xs text-yellow-400 font-bold flex items-center gap-1">
                  <Star size={12} fill="currentColor" />
                  可用升级点数: {upgradePoints}
@@ -891,7 +976,7 @@ const App = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 grid grid-cols-2 md:grid-cols-4 gap-4 pb-32">
-          {deck.map(card => (
+          {collection.map(card => (
             <div key={card.uid} className="flex justify-center">
               <CardComponent 
                 card={card} 
@@ -905,66 +990,40 @@ const App = () => {
         {selectedCard && (
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-gray-900 border border-gray-600 rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col gap-6 animate-fade-in-up">
-              
-              <div className="flex justify-between items-start">
+              {/* Upgrade content same as before, condensed for brevity */}
+               <div className="flex justify-between items-start">
                  <h3 className="text-2xl font-bold text-white">卡牌改造: {selectedCard.name}</h3>
                  <button onClick={() => setSelectedCardId(null)} className="text-gray-400 hover:text-white">✕</button>
               </div>
-
               <div className="flex flex-col md:flex-row gap-8 items-center justify-center">
-                {/* Current Card */}
                 <div className="flex flex-col items-center gap-2">
                   <div className="text-sm text-gray-400">当前状态</div>
                   <CardComponent card={selectedCard} disabled />
                 </div>
-
                 <div className="text-gray-500 hidden md:block"><ChevronRight size={32}/></div>
-
-                {/* Upgrade Options */}
                 {selectedCard.currentPath === null ? (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
                     {/* Power Path */}
                     <div className={`bg-red-900/20 border ${upgradePoints > 0 ? 'border-red-500/30 hover:bg-red-900/40 cursor-pointer' : 'border-gray-700 grayscale opacity-50 cursor-not-allowed'} rounded-xl p-4 transition-colors group relative`}
                          onClick={() => handleUpgrade(selectedCard.uid, 'POWER')}>
-                       <div className="flex items-center gap-2 mb-2 text-red-400 font-bold"><Flame size={18}/> 强袭路线</div>
-                       <h4 className="text-white font-bold text-lg mb-1">{selectedCard.upgradeOptions.POWER?.name}</h4>
-                       <p className="text-xs text-gray-300 mb-2">{selectedCard.upgradeOptions.POWER?.description}</p>
-                       <div className="text-xs text-red-300 font-mono">
-                          {selectedCard.upgradeOptions.POWER?.valueMod > 0 && `伤害 +${selectedCard.upgradeOptions.POWER.valueMod} `}
-                          {selectedCard.upgradeOptions.POWER?.costMod !== 0 && `费用 ${selectedCard.upgradeOptions.POWER.costMod > 0 ? '+' : ''}${selectedCard.upgradeOptions.POWER.costMod}`}
-                       </div>
-                       {upgradePoints === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white bg-black/60 rounded-xl">点数不足</div>}
+                       <div className="flex items-center gap-2 mb-2 text-red-400 font-bold"><Flame size={18}/> 强袭</div>
+                       <div className="text-xs text-gray-300">{selectedCard.upgradeOptions.POWER?.description}</div>
                     </div>
-
                     {/* Speed Path */}
                     <div className={`bg-blue-900/20 border ${upgradePoints > 0 ? 'border-blue-500/30 hover:bg-blue-900/40 cursor-pointer' : 'border-gray-700 grayscale opacity-50 cursor-not-allowed'} rounded-xl p-4 transition-colors group relative`}
                          onClick={() => handleUpgrade(selectedCard.uid, 'SPEED')}>
-                       <div className="flex items-center gap-2 mb-2 text-blue-400 font-bold"><Zap size={18}/> 急速路线</div>
-                       <h4 className="text-white font-bold text-lg mb-1">{selectedCard.upgradeOptions.SPEED?.name}</h4>
-                       <p className="text-xs text-gray-300 mb-2">{selectedCard.upgradeOptions.SPEED?.description}</p>
-                       <div className="text-xs text-blue-300 font-mono">
-                          {selectedCard.upgradeOptions.SPEED?.costMod !== 0 && `费用 ${selectedCard.upgradeOptions.SPEED.costMod} `}
-                          {selectedCard.upgradeOptions.SPEED?.valueMod !== 0 && `数值 ${selectedCard.upgradeOptions.SPEED.valueMod}`}
-                       </div>
-                       {upgradePoints === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white bg-black/60 rounded-xl">点数不足</div>}
+                       <div className="flex items-center gap-2 mb-2 text-blue-400 font-bold"><Zap size={18}/> 急速</div>
+                       <div className="text-xs text-gray-300">{selectedCard.upgradeOptions.SPEED?.description}</div>
                     </div>
-
                     {/* Special Path */}
                     <div className={`bg-yellow-900/20 border ${upgradePoints > 0 ? 'border-yellow-500/30 hover:bg-yellow-900/40 cursor-pointer' : 'border-gray-700 grayscale opacity-50 cursor-not-allowed'} rounded-xl p-4 transition-colors group relative`}
                          onClick={() => handleUpgrade(selectedCard.uid, 'SPECIAL')}>
-                       <div className="flex items-center gap-2 mb-2 text-yellow-400 font-bold"><Star size={18}/> 觉醒路线</div>
-                       <h4 className="text-white font-bold text-lg mb-1">{selectedCard.upgradeOptions.SPECIAL?.name}</h4>
-                       <p className="text-xs text-gray-300 mb-2">{selectedCard.upgradeOptions.SPECIAL?.description}</p>
-                       <div className="text-xs text-yellow-300 font-mono">特殊效果变更</div>
-                       {upgradePoints === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white bg-black/60 rounded-xl">点数不足</div>}
+                       <div className="flex items-center gap-2 mb-2 text-yellow-400 font-bold"><Star size={18}/> 觉醒</div>
+                       <div className="text-xs text-gray-300">{selectedCard.upgradeOptions.SPECIAL?.description}</div>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center p-8 text-center border border-gray-700 rounded-xl bg-gray-800/50">
-                    <div className="text-yellow-400 mb-2"><Star size={32} /></div>
-                    <div className="text-white font-bold text-lg">已改造完毕</div>
-                    <div className="text-gray-400 text-sm">该卡牌已达到最大潜能。</div>
-                  </div>
+                  <div className="text-center text-gray-400">已改造</div>
                 )}
               </div>
             </div>
@@ -983,7 +1042,14 @@ const App = () => {
            <span className="font-bold text-gray-200">第7星区-Alpha</span>
         </div>
         <div className="flex items-center gap-4 text-xs font-mono text-gray-400">
-          <span>{turn === 'PLAYER' ? '我方回合' : '敌方回合'}</span>
+           <div className="flex items-center gap-1 bg-gray-800 px-2 py-1 rounded border border-gray-600">
+             <Box size={14} className="text-blue-400"/>
+             <span>牌库: {drawPile.length}</span>
+           </div>
+           <div className="flex items-center gap-1 bg-gray-800 px-2 py-1 rounded border border-gray-600 opacity-60">
+             <Layers size={14} className="text-gray-400"/>
+             <span>弃牌: {discardPile.length}</span>
+           </div>
         </div>
       </div>
 
@@ -1000,23 +1066,18 @@ const App = () => {
         </div>
 
         {/* Characters */}
-        <div className="relative z-10 w-full max-w-2xl flex justify-between items-end px-8 pb-32 h-full">
+        <div className="relative z-10 w-full max-w-2xl flex justify-between items-end px-8 pb-8 h-full">
           
           {/* Player */}
           <div className="flex flex-col items-center gap-2 transition-all duration-500">
             <div className="relative">
-               {/* VFX Layer for Player */}
                <EffectLayer effects={activeEffects.filter(e => e.target === 'PLAYER')} />
-               
                <div className="w-32 h-48 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-[0_0_30px_rgba(99,102,241,0.3)] flex items-center justify-center relative overflow-hidden group">
                   <User size={64} className="text-white/80" />
-                  {/* Hit FX */}
                   {playerHp < INITIAL_PLAYER_HP && (
                     <div className="absolute inset-0 bg-red-500/20 animate-pulse pointer-events-none" />
                   )}
                </div>
-               
-               {/* Shield Overlay - Modified to be Bottom Right Badge */}
                {playerShield > 0 && (
                  <>
                    <div className="absolute inset-0 border-2 border-blue-400/50 rounded-xl animate-pulse pointer-events-none z-10"></div>
@@ -1026,8 +1087,6 @@ const App = () => {
                    </div>
                  </>
                )}
-
-               {/* Damage Numbers Layer */}
                <div className="absolute inset-0 pointer-events-none z-[60] flex justify-center items-center">
                   {damageNumbers.filter(d => d.target === 'PLAYER').map(d => (
                       <div key={d.id} className={`absolute animate-float-damage font-black stroke-black drop-shadow-lg
@@ -1058,9 +1117,7 @@ const App = () => {
           {/* Enemy */}
           <div className={`flex flex-col items-center gap-2 transition-all duration-100 ${shake ? 'translate-x-2' : ''}`}>
              <div className="relative">
-               {/* VFX Layer for Enemy */}
                <EffectLayer effects={activeEffects.filter(e => e.target === 'ENEMY')} />
-
                <div className={`w-32 h-48 bg-gradient-to-br from-red-900 to-gray-800 rounded-xl shadow-[0_0_30px_rgba(220,38,38,0.3)] flex items-center justify-center border-2 ${enemyFrozen ? 'border-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.5)]' : 'border-red-500/30'}`}>
                   {enemyFrozen ? (
                       <Snowflake size={64} className="text-blue-200 animate-pulse" />
@@ -1068,8 +1125,6 @@ const App = () => {
                       <span className="text-6xl filter drop-shadow-lg">👾</span>
                   )}
                </div>
-               
-               {/* Enemy Shield Overlay - Modified to be Bottom Right Badge */}
                {enemyShield > 0 && (
                  <>
                     <div className="absolute inset-0 border-2 border-gray-400/50 rounded-xl pointer-events-none z-10"></div>
@@ -1079,8 +1134,6 @@ const App = () => {
                     </div>
                  </>
                )}
-
-               {/* Damage Numbers Layer */}
                <div className="absolute inset-0 pointer-events-none z-[60] flex justify-center items-center">
                   {damageNumbers.filter(d => d.target === 'ENEMY').map(d => (
                       <div key={d.id} className={`absolute animate-float-damage font-black stroke-black drop-shadow-lg
@@ -1091,7 +1144,6 @@ const App = () => {
                   ))}
                </div>
             </div>
-            {/* Enemy Stats */}
             <div className="w-32 space-y-1">
               <div className="flex justify-between text-xs text-gray-300">
                 <span>生命值</span>
@@ -1115,29 +1167,74 @@ const App = () => {
 
       </div>
 
+      {/* Floating Tooltip - Now positioned relative to card */}
+      {hoveredCard && hoveredCardRect && (
+        <div 
+            className="fixed z-50 pointer-events-none animate-fade-in-up origin-bottom"
+            style={{ 
+                left: hoveredCardRect.left + (hoveredCardRect.width / 2), 
+                top: hoveredCardRect.top - 10,
+                transform: 'translate(-50%, -100%)'
+            }}
+        >
+            {(() => {
+                const { val, cost, fx, longDesc, name: cardName } = getCardStats(hoveredCard);
+                const type = hoveredCard.type;
+                return (
+                    <div className="bg-gray-900/95 backdrop-blur-md border border-gray-500 p-4 rounded-xl shadow-2xl text-left w-64 relative">
+                        <div className="flex items-center justify-between mb-2 pb-1 border-b border-gray-700">
+                            <span className="font-bold text-white text-base">{cardName}</span>
+                            <span className="text-yellow-400 text-sm font-mono">Cost: {cost}</span>
+                        </div>
+                        <p className="text-sm text-gray-300 leading-relaxed mb-3">
+                            {longDesc}
+                        </p>
+                        <div className="flex gap-2 text-[10px] font-mono text-gray-500 uppercase">
+                            <span className="bg-gray-800 px-2 py-0.5 rounded border border-gray-700">{fx}</span>
+                            <span className="bg-gray-800 px-2 py-0.5 rounded border border-gray-700">{TYPE_MAP[type]}</span>
+                        </div>
+                        {/* Down Arrow */}
+                        <div className="absolute left-1/2 -translate-x-1/2 bottom-[-8px] w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-gray-500"></div>
+                    </div>
+                );
+            })()}
+        </div>
+      )}
+
       {/* Cards UI */}
-      <div className="h-64 bg-gray-900/90 border-t border-gray-700 relative z-30 p-4 flex flex-col items-center">
-        <div className="flex justify-between w-full max-w-lg mb-2 px-4">
-          <div className="text-xs text-gray-400 font-mono flex items-center gap-1">
-            能量 <span className="text-yellow-400 font-bold ml-1 text-lg">⚡ {energy}</span>
+      <div className="h-64 bg-gray-900/90 border-t border-gray-700 relative z-30 flex flex-col items-center">
+        <div className="absolute top-2 left-0 right-0 px-8 flex justify-between items-center z-40 pointer-events-none">
+          <div className="flex items-center gap-4 pointer-events-auto">
+              <div className="text-xs text-gray-400 font-mono flex items-center gap-1">
+                能量 <span className="text-yellow-400 font-bold ml-1 text-lg">⚡ {energy}</span>
+              </div>
           </div>
-          <div className="text-xs text-gray-400 font-mono">
-             牌库: {Math.max(0, deck.length - hand.length)}
-          </div>
+          
+          {turn === 'PLAYER' && (
+              <div className="pointer-events-auto">
+                <Button onClick={handleEndTurn} variant="danger" className="py-1 px-4 text-sm h-8">
+                    结束回合
+                </Button>
+              </div>
+          )}
         </div>
         
         {turn === 'PLAYER' ? (
-          <div className="flex gap-4 items-end justify-center h-full pb-4">
+          <div className="flex-1 w-full overflow-x-auto overflow-y-hidden px-4 flex gap-4 items-center justify-start md:justify-center scrollbar-hide pt-6 pb-2">
             {hand.map(card => (
               <CardComponent 
                 key={card.uid} 
                 card={card} 
                 disabled={energy < getCardStats(card).cost}
-                onClick={() => playCard(card)} 
+                onClick={() => playCard(card)}
+                onHover={(c, r) => { setHoveredCard(c); setHoveredCardRect(r); }}
+                isPlaying={playingCards.has(card.uid)}
               />
             ))}
             {hand.length === 0 && (
-               <div className="text-gray-500 animate-pulse">等待下一回合...</div>
+               <div className="text-gray-500 animate-pulse w-full text-center mt-12">
+                   {drawPile.length === 0 ? "弹尽粮绝!" : "回合结束..."}
+               </div>
             )}
           </div>
         ) : (
@@ -1150,117 +1247,79 @@ const App = () => {
     </div>
   );
 
+  // ... (Gacha, Reward, Victory, Defeat renders remain mostly same)
   const renderGacha = () => (
-    <div className="flex flex-col items-center justify-center h-full bg-[#1a1a2e] relative overflow-hidden">
-        <div className="absolute top-4 left-4 z-20">
-             <Button onClick={() => setScreen('MENU')} variant="outline">返回</Button>
+    <div className="flex flex-col items-center justify-center h-full bg-gray-900 relative z-20 space-y-8 p-8">
+      <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400">共鸣契约</h2>
+      
+      {lastPulledChar ? (
+         <div className="flex flex-col items-center animate-fade-in-up">
+            <CharacterCard char={lastPulledChar} />
+            <div className="mt-4 text-white text-xl font-bold">获得: {lastPulledChar.name}</div>
+            <div className="text-gray-400 text-sm mt-1">同时也获得了一张随机卡牌!</div>
+            <Button onClick={() => setLastPulledChar(null)} className="mt-8" variant="primary">继续</Button>
+         </div>
+      ) : (
+        <div className="text-center space-y-8">
+           <div className="w-48 h-48 border-4 border-dashed border-gray-700 rounded-full flex items-center justify-center mx-auto">
+              <Sparkles size={64} className="text-gray-700" />
+           </div>
+           <Button onClick={pullGacha} variant="primary" className="w-64">
+             <Sparkles size={20} /> 共鸣 (免费)
+           </Button>
         </div>
-
-        {!lastPulledChar ? (
-            <div className="text-center z-10 space-y-8 animate-fade-in">
-                <h2 className="text-3xl font-bold text-white mb-8">回响共鸣</h2>
-                <div className="w-64 h-64 rounded-full border-4 border-pink-500/30 flex items-center justify-center animate-spin-slow">
-                    <div className="w-48 h-48 rounded-full bg-gradient-to-tr from-pink-500 to-purple-600 blur-xl opacity-50 absolute"></div>
-                    <Sparkles size={64} className="text-white relative z-10" />
-                </div>
-                <Button onClick={pullGacha} variant="primary" className="mx-auto w-48 text-lg">
-                    连接开始 (1x)
-                </Button>
-                <p className="text-gray-500 text-sm">每次连接将获得一张新卡牌和角色碎片</p>
-            </div>
-        ) : (
-            <div className="flex flex-col items-center z-10 animate-fade-in-up">
-                 <div className="mb-4">
-                    <CharacterCard char={lastPulledChar} />
-                 </div>
-                 <div className="text-center mb-8">
-                    <div className="text-white font-bold text-xl">获得新卡牌！</div>
-                    <div className="text-cyan-400 text-sm">{deck[deck.length-1]?.name}</div>
-                 </div>
-                 <div className="flex gap-4">
-                    <Button onClick={() => setLastPulledChar(null)} variant="secondary">跳过</Button>
-                    <Button onClick={pullGacha} variant="primary">再次召唤</Button>
-                 </div>
-            </div>
-        )}
+      )}
+      
+      {!lastPulledChar && (
+        <Button onClick={() => setScreen('MENU')} variant="secondary">返回</Button>
+      )}
     </div>
   );
 
-  const renderRewardScreen = () => {
-    if (!rewardCard) return null;
-
-    return (
-      <div className="flex flex-col items-center justify-center h-full bg-black/90 z-50 animate-fade-in relative">
-        <div className="text-center mb-12">
-            <h1 className="text-5xl font-black text-yellow-400 mb-2 tracking-tighter drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]">
-                战斗胜利
-            </h1>
-            <p className="text-gray-300 font-mono text-sm">CHOOSE YOUR REWARD</p>
+  const renderReward = () => (
+     <div className="flex flex-col items-center justify-center h-full bg-black/90 z-50 p-8 space-y-8">
+        <h2 className="text-4xl font-bold text-yellow-400 mb-8">战斗胜利!</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+           {rewardCard && (
+               <div className="flex flex-col items-center gap-4 cursor-pointer group" onClick={() => claimReward('CARD')}>
+                  <div className="text-white font-bold text-xl group-hover:text-yellow-300">获取卡牌</div>
+                  <CardComponent card={rewardCard} disabled />
+               </div>
+           )}
+           <div className="flex flex-col items-center gap-4 cursor-pointer group" onClick={() => claimReward('POINT')}>
+              <div className="text-white font-bold text-xl group-hover:text-yellow-300">升级点数 +1</div>
+              <div className="w-32 h-48 border-2 border-yellow-500/50 bg-yellow-900/20 rounded-xl flex items-center justify-center">
+                 <Star size={48} className="text-yellow-400" />
+              </div>
+           </div>
         </div>
+     </div>
+  );
 
-        <div className="flex flex-col md:flex-row gap-12 items-center justify-center w-full max-w-4xl px-4">
-            
-            {/* Option A: Card */}
-            <div className="flex flex-col items-center gap-6 group">
-                <div className="relative transform transition-all duration-300 group-hover:-translate-y-4 group-hover:scale-105">
-                     <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-blue-600/80 px-3 py-1 rounded-full text-xs font-bold text-white backdrop-blur-sm border border-blue-400/30">
-                        战术芯片
-                     </div>
-                     <CardComponent card={rewardCard} />
-                     <div className="absolute inset-0 border-2 border-blue-400/0 group-hover:border-blue-400/50 rounded-xl transition-all" />
-                </div>
-                <Button onClick={() => claimReward('CARD')} variant="primary" className="w-48">
-                    获取卡牌
-                </Button>
-            </div>
+  const renderVictory = () => (
+    <div className="flex flex-col items-center justify-center h-full bg-black z-50 space-y-8">
+        <h1 className="text-6xl font-black text-yellow-500">VICTORY</h1>
+        <Button onClick={() => setScreen('MENU')} variant="primary">返回主菜单</Button>
+    </div>
+  );
 
-            <div className="text-2xl font-black text-gray-600 italic">OR</div>
-
-            {/* Option B: Upgrade Point */}
-            <div className="flex flex-col items-center gap-6 group">
-                 <div className="relative transform transition-all duration-300 group-hover:-translate-y-4 group-hover:scale-105">
-                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-yellow-600/80 px-3 py-1 rounded-full text-xs font-bold text-white backdrop-blur-sm border border-yellow-400/30">
-                        改造点数
-                     </div>
-                    <div className="w-32 h-48 rounded-xl bg-gradient-to-br from-yellow-900 to-orange-900 border-2 border-yellow-500/30 flex flex-col items-center justify-center shadow-2xl relative overflow-hidden">
-                        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-                        <Star size={48} className="text-yellow-400 mb-2 filter drop-shadow-[0_0_10px_rgba(250,204,21,0.8)] animate-pulse" fill="currentColor" />
-                        <div className="text-2xl font-bold text-white">+1</div>
-                        <div className="text-xs text-yellow-200 mt-1">Upgrade Point</div>
-                    </div>
-                </div>
-                <Button onClick={() => claimReward('POINT')} variant="primary" className="w-48 bg-gradient-to-r from-yellow-500 to-orange-600">
-                    获取点数
-                </Button>
-            </div>
-        </div>
-      </div>
-    );
-  }
-
-  const renderEndScreen = (win: boolean) => (
-    <div className="flex flex-col items-center justify-center h-full bg-black/90 z-50 animate-fade-in">
-      <h1 className={`text-6xl font-black mb-4 ${win ? 'text-yellow-400' : 'text-red-600'} tracking-tighter`}>
-        {win ? '任务完成' : '信号丢失'}
-      </h1>
-      <p className="text-gray-400 mb-8 font-mono">{win ? '奖励已发放' : '正在启动修复程序...'}</p>
-      <Button onClick={() => setScreen('MENU')} variant="outline">
-        返回基地
-      </Button>
+  const renderDefeat = () => (
+    <div className="flex flex-col items-center justify-center h-full bg-black z-50 space-y-8">
+        <h1 className="text-6xl font-black text-red-600">DEFEAT</h1>
+        <Skull size={64} className="text-red-600" />
+        <Button onClick={() => setScreen('MENU')} variant="secondary">返回主菜单</Button>
     </div>
   );
 
   return (
-    <div className="w-full h-screen bg-[#0f0f1a] text-white font-sans overflow-hidden select-none">
+    <div className="w-full h-screen bg-gray-950 text-white overflow-hidden font-sans select-none">
       {screen === 'MENU' && renderMenu()}
-      {screen === 'DECK' && renderDeckScreen()}
       {screen === 'BATTLE' && renderBattle()}
+      {screen === 'DECK' && renderDeckScreen()}
       {screen === 'GACHA' && renderGacha()}
-      {screen === 'REWARD' && renderRewardScreen()}
-      {(screen === 'VICTORY' || screen === 'DEFEAT') && renderEndScreen(screen === 'VICTORY')}
-      
-      {/* Overlay Noise/Scanlines */}
-      <div className="pointer-events-none absolute inset-0 opacity-[0.03] z-[100]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22/%3E%3C/svg%3E")' }} />
+      {screen === 'REWARD' && renderReward()}
+      {screen === 'VICTORY' && renderVictory()}
+      {screen === 'DEFEAT' && renderDefeat()}
     </div>
   );
 };
@@ -1283,73 +1342,105 @@ style.textContent = `
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
+  @keyframes spin-slow-reverse {
+    from { transform: rotate(360deg); }
+    to { transform: rotate(0deg); }
+  }
+  @keyframes spin-fast {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes pulse-fast {
+    0%, 100% { opacity: 0.8; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.05); }
+  }
+
+  /* REFINED CARD PLAY ANIMATION */
+  @keyframes card-play-anim {
+    0% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
+    15% { transform: translateY(30px) scale(0.9) rotate(-3deg); opacity: 1; }
+    40% { transform: translateY(-80px) scaleX(0.8) scaleY(1.2) rotate(2deg); opacity: 0.8; }
+    100% { transform: translateY(-400px) scale(0.5); opacity: 0; }
+  }
+  .animate-card-play { animation: card-play-anim 0.35s cubic-bezier(0.3, -0.1, 0.1, 1) forwards; }
   
-  /* SLASH ANIMATIONS - REFINED */
-  @keyframes slash-fast-whoosh {
-    0% { transform: translateX(-50%) scaleX(0.5); opacity: 0; }
-    20% { opacity: 0.8; }
-    100% { transform: translateX(50%) scaleX(1.5); opacity: 0; }
+  /* NEW SLASH ANIMATIONS */
+  @keyframes slash-core {
+    0% { width: 0; opacity: 0; transform: scaleX(0) rotate(-30deg); }
+    20% { width: 120%; opacity: 1; transform: scaleX(1) rotate(-30deg); }
+    100% { width: 120%; opacity: 0; transform: scaleX(1.2) rotate(-30deg); }
   }
-  @keyframes slash-fast-trace {
-    0% { width: 0%; opacity: 0; left: -20%; }
-    10% { opacity: 1; }
-    50% { width: 150%; left: 50%; transform: translateX(-50%); }
-    100% { width: 0%; opacity: 0; left: 120%; }
+  @keyframes slash-trail {
+    0% { opacity: 0; transform: translateX(-50px) rotate(-30deg); }
+    30% { opacity: 0.8; transform: translateX(0) rotate(-30deg); }
+    100% { opacity: 0; transform: translateX(50px) rotate(-30deg); }
   }
-  @keyframes slash-impact {
-    0% { opacity: 0; transform: scaleX(0.5) scaleY(0.2); }
-    20% { opacity: 1; transform: scaleX(1) scaleY(1); }
-    100% { opacity: 0; transform: scaleX(1.2) scaleY(0.1); filter: blur(4px); }
+  @keyframes flash-impact {
+    0% { opacity: 0; }
+    20% { opacity: 1; }
+    100% { opacity: 0; }
   }
-  
-  /* EXPLOSION ANIMATIONS - REFINED */
-  @keyframes explosion-core {
-    0% { transform: scale(0.1); opacity: 1; }
+  .animate-slash-core { animation: slash-core 0.2s cubic-bezier(0, 0.9, 0.1, 1) forwards; }
+  .animate-slash-trail { animation: slash-trail 0.3s ease-out forwards; }
+  .animate-flash-impact { animation: flash-impact 0.2s ease-out forwards; }
+
+  /* NEW THUNDER ANIMATIONS */
+  @keyframes thunder-bolt {
+    0% { opacity: 0; stroke-dasharray: 1000; stroke-dashoffset: 1000; }
+    10% { opacity: 1; stroke-dashoffset: 0; }
     50% { opacity: 1; }
-    100% { transform: scale(3); opacity: 0; }
+    100% { opacity: 0; }
   }
-  @keyframes explosion-expand {
-    0% { transform: scale(0.2); opacity: 0.8; }
-    100% { transform: scale(2); opacity: 0; }
+  @keyframes flash-short {
+    0%, 100% { opacity: 0; }
+    10% { opacity: 0.8; }
+    30% { opacity: 0; }
   }
-  @keyframes explosion-flash {
-    0% { transform: scale(0); opacity: 1; }
-    10% { transform: scale(3); opacity: 1; }
-    100% { transform: scale(4); opacity: 0; }
+  @keyframes electric-ring {
+    0% { transform: scale(0); opacity: 1; border-width: 4px; }
+    100% { transform: scale(2); opacity: 0; border-width: 0px; }
   }
-  @keyframes explosion-ring {
-    0% { transform: scale(0); opacity: 0; border-width: 8px; }
-    10% { opacity: 1; }
-    100% { transform: scale(3); opacity: 0; border-width: 0px; }
+  @keyframes impact-glow {
+    0% { opacity: 0; transform: scale(0.5); }
+    20% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.5); }
   }
-  @keyframes explosion-halo {
+  .animate-thunder-bolt { animation: thunder-bolt 0.4s ease-out forwards; }
+  .animate-flash-short { animation: flash-short 0.4s ease-out forwards; }
+  .animate-electric-ring { animation: electric-ring 0.5s ease-out 0.1s forwards; }
+  .animate-impact-glow { animation: impact-glow 0.5s ease-out forwards; }
+
+  /* NEW EXPLOSION ANIMATIONS */
+  @keyframes shockwave-fast {
+    0% { transform: scale(0); opacity: 1; border-width: 40px; }
+    100% { transform: scale(2); opacity: 0; border-width: 0px; }
+  }
+  @keyframes shockwave-slow {
     0% { transform: scale(0); opacity: 0; }
-    30% { opacity: 0.6; }
+    20% { transform: scale(0.5); opacity: 1; }
     100% { transform: scale(2.5); opacity: 0; }
   }
-  @keyframes shockwave {
-    0% { transform: scale(0.5); opacity: 0; border-width: 4px; }
-    20% { opacity: 1; }
-    100% { transform: scale(2.5); opacity: 0; border-width: 0px; }
+  @keyframes fade-out {
+    0% { opacity: 0.8; transform: scale(0.5); }
+    100% { opacity: 0; transform: scale(1.5); }
   }
-  @keyframes halo-burst {
-    0% { transform: scale(0); opacity: 1; background-color: #fff; }
-    30% { background-color: #fbbf24; opacity: 0.8; }
-    100% { transform: scale(12); opacity: 0; background-color: #ef4444; }
-  }
-  @keyframes flash-instant {
-    0% { transform: scale(1); opacity: 1; }
-    100% { transform: scale(2); opacity: 0; }
-  }
-  
+  .animate-shockwave-fast { animation: shockwave-fast 0.5s ease-out forwards; }
+  .animate-shockwave-slow { animation: shockwave-slow 0.7s ease-out 0.1s forwards; }
+  .animate-fade-out { animation: fade-out 0.6s ease-out forwards; }
+
+  /* SPIN SLASH */
+  .animate-spin-slash { animation: spin-fast 0.5s linear forwards, fade-out 0.5s ease-in forwards; }
+
   /* SHIELD ANIMATIONS */
   @keyframes shield-deploy {
-    0% { transform: scale(0.8); opacity: 0; }
-    50% { transform: scale(1.05); opacity: 1; }
-    100% { transform: scale(1); opacity: 1; }
+    0% { transform: scale(0.6); opacity: 0; }
+    60% { transform: scale(1.1); opacity: 1; }
+    80% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(1); opacity: 0; }
   }
+  .animate-shield-deploy { animation: shield-deploy 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
   
-  /* HEAL ANIMATIONS */
+  /* HEAL & DRAW ANIMATIONS */
   @keyframes float-up-1 {
     0% { transform: translateY(0) scale(0.5); opacity: 0; }
     20% { opacity: 1; transform: translateY(-10px) scale(1.2); }
@@ -1357,51 +1448,81 @@ style.textContent = `
   }
   @keyframes float-up-2 {
     0% { transform: translateY(0) scale(0); opacity: 0; }
-    40% { opacity: 1; transform: translateY(-15px) scale(1); }
-    100% { transform: translateY(-50px) scale(0.5); opacity: 0; }
+    30% { opacity: 1; transform: translateY(-15px) scale(1); }
+    100% { transform: translateY(-50px) scale(1.2); opacity: 0; }
   }
-  @keyframes float-up-3 {
-    0% { transform: translateY(0); opacity: 0; }
-    30% { opacity: 1; transform: translateY(-20px); }
-    100% { transform: translateY(-70px); opacity: 0; }
+  @keyframes heal-pulse {
+    0% { transform: scale(0.8); opacity: 0; }
+    50% { transform: scale(1.1); opacity: 0.5; }
+    100% { transform: scale(1.2); opacity: 0; }
   }
-  @keyframes pulse-fade {
-    0% { opacity: 0; }
-    50% { opacity: 1; }
-    100% { opacity: 0; }
-  }
-  
-  /* NEW VFX ANIMATIONS */
-  @keyframes thunder-strike {
-    0% { opacity: 0; transform: translateY(-100%) scaleX(0.5); }
-    10% { opacity: 1; transform: translateY(0%) scaleX(1); }
-    20% { opacity: 0.5; }
+  @keyframes heal-ring {
+    0% { transform: scale(0.5); opacity: 0; border-width: 4px; }
     30% { opacity: 1; }
-    100% { opacity: 0; transform: scaleX(1.5); }
+    100% { transform: scale(1.5); opacity: 0; border-width: 0px; }
   }
-  @keyframes laser-beam {
-    0% { width: 0%; opacity: 0; }
-    20% { width: 100%; opacity: 1; }
-    80% { opacity: 1; }
-    100% { opacity: 0; }
+  @keyframes heal-particle {
+    0% { transform: translateY(0) scale(0); opacity: 0; }
+    20% { opacity: 1; transform: translateY(-10px) scale(1); }
+    100% { transform: translateY(-40px) scale(0); opacity: 0; }
   }
+  .animate-float-up-1 { animation: float-up-1 0.8s ease-out forwards; }
+  .animate-float-up-2 { animation: float-up-2 0.8s ease-out forwards; }
+  .animate-heal-pulse { animation: heal-pulse 1s ease-out forwards; }
+  .animate-heal-ring { animation: heal-ring 0.8s ease-out forwards; }
+  .animate-heal-particle-1 { animation: heal-particle 0.8s ease-out 0.1s forwards; }
+  .animate-heal-particle-2 { animation: heal-particle 0.9s ease-out 0.2s forwards; }
+  .animate-heal-particle-3 { animation: heal-particle 0.7s ease-out 0s forwards; }
+  
+  /* BUFF */
+  @keyframes halo-rise {
+    0% { transform: translateY(20px) scale(0.8); opacity: 0; }
+    50% { opacity: 1; }
+    100% { transform: translateY(-50px) scale(1.2); opacity: 0; }
+  }
+  @keyframes expand-ring {
+    0% { transform: scale(0.8); opacity: 0; border-width: 4px; }
+    30% { opacity: 1; }
+    100% { transform: scale(1.5); opacity: 0; border-width: 0px; }
+  }
+  .animate-halo-rise { animation: halo-rise 1s ease-out forwards; }
+  .animate-expand-ring { animation: expand-ring 0.8s ease-out forwards; }
+
+  /* ICE */
   @keyframes ice-shatter {
     0% { transform: scale(0); opacity: 0; }
-    50% { transform: scale(1.2); opacity: 1; }
-    70% { transform: scale(1); opacity: 1; }
+    40% { transform: scale(1.2); opacity: 1; }
+    60% { transform: scale(1); opacity: 1; }
     100% { transform: scale(1.5); opacity: 0; filter: blur(4px); }
   }
-  
-  /* COMMON */
-  @keyframes flash-short {
-    0% { opacity: 0.8; }
-    100% { opacity: 0; }
-  }
-  @keyframes flash-hit {
-    0% { opacity: 0.6; }
-    100% { opacity: 0; }
-  }
+  .animate-ice-shatter { animation: ice-shatter 0.6s ease-out forwards; }
 
+  /* LASER */
+  @keyframes laser-shoot {
+      0% { width: 0%; opacity: 0; }
+      10% { width: 100%; opacity: 1; }
+      80% { opacity: 1; }
+      100% { width: 100%; opacity: 0; }
+  }
+  .animate-laser-shoot { animation: laser-shoot 0.5s ease-out forwards; }
+
+  /* VOID */
+  @keyframes void-implode {
+      0% { transform: scale(2); opacity: 0; }
+      50% { transform: scale(1); opacity: 1; }
+      80% { transform: scale(0.8); opacity: 1; }
+      100% { transform: scale(0); opacity: 0; }
+  }
+  .animate-void-implode { animation: void-implode 0.8s ease-in forwards; }
+
+  /* DRAIN */
+  @keyframes drain-soul {
+      0% { transform: scale(0.5); opacity: 0; }
+      40% { opacity: 1; transform: scale(1); }
+      100% { transform: scale(2); opacity: 0; filter: blur(4px); }
+  }
+  .animate-drain-soul { animation: drain-soul 0.8s ease-out forwards; }
+  
   /* DAMAGE FLOATERS */
   @keyframes float-damage {
     0% { opacity: 1; transform: translateY(0) scale(0.5); }
@@ -1411,36 +1532,19 @@ style.textContent = `
   }
   .animate-float-damage { animation: float-damage 0.8s ease-out forwards; }
 
+  /* Scrollbar hide utility */
+  .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+  }
+  .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+  }
+
   .animate-fade-in { animation: fade-in 0.5s ease-out forwards; }
   .animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
   .animate-spin-slow { animation: spin-slow 8s linear infinite; }
-  
-  .animate-slash-fast-whoosh { animation: slash-fast-whoosh 0.25s cubic-bezier(0, 0.5, 0.5, 1) forwards; }
-  .animate-slash-fast-trace { animation: slash-fast-trace 0.3s ease-out forwards; }
-  .animate-slash-impact { animation: slash-impact 0.4s ease-out forwards; }
-  
-  .animate-explosion-core { animation: explosion-core 0.4s ease-out forwards; }
-  .animate-explosion-expand { animation: explosion-expand 0.5s ease-out forwards; }
-  .animate-explosion-flash { animation: explosion-flash 0.3s ease-out forwards; }
-  .animate-explosion-ring { animation: explosion-ring 0.4s ease-out forwards; }
-  .animate-explosion-halo { animation: explosion-halo 0.5s ease-out forwards; }
-  
-  .animate-shockwave { animation: shockwave 0.5s ease-out forwards; }
-  .animate-halo-burst { animation: halo-burst 0.4s ease-out forwards; }
-  .animate-flash-instant { animation: flash-instant 0.2s ease-out forwards; }
-  
-  .animate-shield-deploy { animation: shield-deploy 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-  
-  .animate-float-up-1 { animation: float-up-1 1s ease-out forwards; }
-  .animate-float-up-2 { animation: float-up-2 1.2s ease-out 0.1s forwards; }
-  .animate-float-up-3 { animation: float-up-3 1.1s ease-out 0.2s forwards; }
-  .animate-pulse-fade { animation: pulse-fade 0.8s ease-out forwards; }
-  
-  .animate-flash-short { animation: flash-short 0.15s ease-out forwards; }
-  .animate-flash-hit { animation: flash-hit 0.2s ease-out forwards; }
-  
-  .animate-thunder-strike { animation: thunder-strike 0.3s cubic-bezier(0.1, 0.9, 0.2, 1) forwards; }
-  .animate-laser-beam { animation: laser-beam 0.5s ease-out forwards; }
-  .animate-ice-shatter { animation: ice-shatter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+  .animate-spin-slow-reverse { animation: spin-slow-reverse 12s linear infinite; }
+  .animate-spin-fast { animation: spin-fast 0.5s linear infinite; }
 `;
 document.head.appendChild(style);
