@@ -9,7 +9,7 @@ import {
 // --- Types ---
 type CardType = 'ATTACK' | 'DEFEND' | 'SKILL';
 // Expanded visual effect types for more variety
-type VisualEffectType = 'SLASH' | 'BLOCK' | 'HEAL' | 'BUFF_AURA' | 'EXPLOSION' | 'ICE_NOVA' | 'THUNDER' | 'DRAW' | 'LASER' | 'VOID' | 'DRAIN' | 'SPIN_SLASH';
+type VisualEffectType = 'SLASH' | 'BLOCK' | 'HEAL' | 'BUFF_AURA' | 'EXPLOSION' | 'ICE_NOVA' | 'THUNDER' | 'DRAW' | 'LASER' | 'VOID' | 'DRAIN' | 'SPIN_SLASH' | 'SHUFFLE';
 type UpgradePathType = 'POWER' | 'SPEED' | 'SPECIAL';
 type GameScreen = 'MENU' | 'BATTLE' | 'DECK' | 'GACHA' | 'REWARD' | 'VICTORY' | 'DEFEAT';
 
@@ -250,7 +250,7 @@ const CardComponent: React.FC<CardComponentProps> = ({ card, onClick, disabled, 
 
   return (
     <div 
-      className={`relative group shrink-0 transition-all duration-500 ${isPlaying ? 'z-[100] pointer-events-none' : 'hover:z-50'}`}
+      className={`relative group shrink-0 transition-all duration-500 ${isPlaying ? 'z-[100] pointer-events-none' : 'hover:z-50 animate-deal'}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={() => !isPlaying && onHover && onHover(null, null)}
     >
@@ -330,6 +330,17 @@ const EffectLayer: React.FC<{ effects: VisualEffect[] }> = ({ effects }) => {
         let content = null;
         
         switch(effect.type) {
+            case 'SHUFFLE':
+                animationClass = 'animate-fade-out';
+                content = (
+                  <div className="flex flex-col items-center gap-2 z-50">
+                    <div className="w-24 h-24 rounded-full border-4 border-emerald-400 border-dashed flex items-center justify-center animate-spin-slow bg-black/50 backdrop-blur">
+                        <RefreshCw size={48} className="text-emerald-400" />
+                    </div>
+                    <div className="text-emerald-400 font-bold text-xl tracking-widest animate-pulse">RESHUFFLING</div>
+                  </div>
+                );
+                break;
             case 'SLASH': 
                 animationClass = 'animate-slash-combo';
                 content = (
@@ -514,6 +525,12 @@ const App = () => {
   const [hand, setHand] = useState<Card[]>([]);
   const [discardPile, setDiscardPile] = useState<Card[]>([]);
 
+  // Refs for accessing state in closures without triggering re-renders loops
+  const deckStateRef = useRef({ draw: drawPile, discard: discardPile, hand: hand });
+  useEffect(() => {
+    deckStateRef.current = { draw: drawPile, discard: discardPile, hand: hand };
+  }, [drawPile, discardPile, hand]);
+
   const [turn, setTurn] = useState<'PLAYER' | 'ENEMY'>('PLAYER');
   const [battleLog, setBattleLog] = useState<string[]>([]);
   
@@ -583,6 +600,44 @@ const App = () => {
       };
   };
 
+  const handleDrawCards = (count: number) => {
+    // Use refs to get latest state for logic that might be called rapidly or in closures
+    const currentDraw = [...deckStateRef.current.draw];
+    const currentDiscard = [...deckStateRef.current.discard];
+    const currentHand = [...deckStateRef.current.hand];
+    
+    let drawn: Card[] = [];
+    
+    // First attempt to draw
+    const pull = (n: number, source: Card[]) => {
+        for(let i=0; i<n; i++){
+            if(source.length > 0) drawn.push(source.shift()!);
+        }
+    };
+    
+    pull(count, currentDraw);
+
+    // If not enough cards, try to reshuffle
+    if (drawn.length < count && currentDiscard.length > 0) {
+        triggerEffect('SHUFFLE', 'PLAYER');
+        addLog("♻️ 弃牌堆重洗");
+        
+        // Shuffle discard into draw
+        const reshuffled = shuffle([...currentDiscard]);
+        currentDraw.push(...reshuffled);
+        
+        // Clear discard (will be updated in state below)
+        currentDiscard.length = 0; 
+        
+        // Continue drawing
+        pull(count - drawn.length, currentDraw);
+    }
+    
+    setDrawPile(currentDraw);
+    setDiscardPile(currentDiscard);
+    setHand(prev => [...prev, ...drawn]);
+  };
+
   const addLog = (msg: string) => {
     setBattleLog(prev => [msg, ...prev].slice(0, 3));
   };
@@ -592,7 +647,7 @@ const App = () => {
     setActiveEffects(prev => [...prev, { id, type, target }]);
     setTimeout(() => {
         setActiveEffects(prev => prev.filter(e => e.id !== id));
-    }, 800); // Shortened duration for snappier feel
+    }, 1000); 
   };
 
   const spawnDamage = (value: string | number, target: 'PLAYER' | 'ENEMY', isCrit: boolean = false) => {
@@ -659,7 +714,7 @@ const App = () => {
            // Double check after delay
            if (playingCards.size > 0) return; 
 
-           if (hand.length === 0 && drawPile.length === 0) {
+           if (hand.length === 0 && drawPile.length === 0 && discardPile.length === 0) {
              addLog("⚠️ 弹尽粮绝，回合结束");
            } else if (hand.length === 0) {
              addLog("⚠️ 手牌耗尽，回合结束");
@@ -721,14 +776,9 @@ const App = () => {
             setTurn('PLAYER');
             setEnergy(STARTING_ENERGY);
             
-            // Draw 2 cards for new turn (or 0 if empty)
-            setDrawPile(prevPile => {
-                const res = drawCards(2, prevPile, hand); // Pass current hand to retain cards
-                setHand(res.newHand);
-                if (res.drawnCount === 0) addLog("牌库已空，无法抽牌！");
-                else addLog(`回合开始，抽${res.drawnCount}张牌`);
-                return res.newDrawPile;
-            });
+            // Handle Draw Logic using the new helper that supports reshuffle
+            addLog(`回合开始，准备抽牌`);
+            handleDrawCards(2);
 
             // Decay Shield slightly
             setPlayerShield(prev => Math.floor(prev * 0.5));
@@ -768,6 +818,9 @@ const App = () => {
     setDrawPile(initialDraw.newDrawPile);
     setHand(initialDraw.newHand);
     setDiscardPile([]);
+    
+    // Force update ref immediately for logic consistency if called synchronously (though useEffect handles it mostly)
+    deckStateRef.current = { draw: initialDraw.newDrawPile, discard: [], hand: initialDraw.newHand };
 
     setTurn('PLAYER');
     setBattleLog(['战斗开始！']);
@@ -881,22 +934,9 @@ const App = () => {
     else if (card.type === 'SKILL') {
        if (stats.fx === 'DRAW') {
            const count = stats.val;
-           // Logic to draw cards immediately
-           let drawnCount = 0;
-           setDrawPile(prev => {
-               const copy = [...prev];
-               const drawn: Card[] = [];
-               for(let i=0; i<count; i++) {
-                   if(copy.length > 0) drawn.push(copy.shift()!);
-               }
-               drawnCount = drawn.length;
-               if(drawn.length > 0) {
-                   setHand(h => [...h, ...drawn]);
-               }
-               return copy;
-           });
            addLog(`战术补给！抽 ${count} 张牌`);
            triggerEffect('DRAW', 'PLAYER');
+           handleDrawCards(count);
        }
        else if (stats.fx === 'BUFF_AURA') {
          let energyGain = stats.val > 0 ? stats.val : 1;
@@ -1354,6 +1394,13 @@ style.textContent = `
     0%, 100% { opacity: 0.8; transform: scale(1); }
     50% { opacity: 0.4; transform: scale(1.05); }
   }
+  
+  /* DEAL ANIMATION */
+  @keyframes deal {
+    from { transform: translateY(100%) scale(0.5); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  .animate-deal { animation: deal 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards; }
 
   /* REFINED CARD PLAY ANIMATION */
   @keyframes card-play-anim {
