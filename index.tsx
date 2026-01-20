@@ -1173,7 +1173,7 @@ const App = () => {
             className="fixed z-50 pointer-events-none animate-fade-in-up origin-bottom"
             style={{ 
                 left: hoveredCardRect.left + (hoveredCardRect.width / 2), 
-                top: hoveredCardRect.top - 10,
+                top: hoveredCardRect.top - 20,
                 transform: 'translate(-50%, -100%)'
             }}
         >
@@ -1202,7 +1202,7 @@ const App = () => {
       )}
 
       {/* Cards UI */}
-      <div className="h-64 bg-gray-900/90 border-t border-gray-700 relative z-30 flex flex-col items-center">
+      <div className="h-72 bg-gray-900/90 border-t border-gray-700 relative z-30 flex flex-col items-center">
         <div className="absolute top-2 left-0 right-0 px-8 flex justify-between items-center z-40 pointer-events-none">
           <div className="flex items-center gap-4 pointer-events-auto">
               <div className="text-xs text-gray-400 font-mono flex items-center gap-1">
@@ -1220,7 +1220,7 @@ const App = () => {
         </div>
         
         {turn === 'PLAYER' ? (
-          <div className="flex-1 w-full overflow-x-auto overflow-y-hidden px-4 flex gap-4 items-center justify-start md:justify-center scrollbar-hide pt-6 pb-2">
+          <div className="flex-1 w-full overflow-x-auto overflow-y-hidden px-8 flex gap-4 items-center justify-start scrollbar-hide pt-8 pb-4">
             {hand.map(card => (
               <CardComponent 
                 key={card.uid} 
