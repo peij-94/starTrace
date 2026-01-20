@@ -3,15 +3,16 @@ import { createRoot } from 'react-dom/client';
 import { 
   Sword, Shield, Sparkles, Flame, Zap, Star, Layers, 
   ChevronRight, User, Snowflake, Skull, RefreshCw, Box, Copy,
-  ZapOff, Crosshair, Droplets, Wind
+  ZapOff, Crosshair, Droplets, Wind, Eye, Ghost
 } from 'lucide-react';
 
 // --- Types ---
 type CardType = 'ATTACK' | 'DEFEND' | 'SKILL';
 // Expanded visual effect types for more variety
-type VisualEffectType = 'SLASH' | 'BLOCK' | 'HEAL' | 'BUFF_AURA' | 'EXPLOSION' | 'ICE_NOVA' | 'THUNDER' | 'DRAW' | 'LASER' | 'VOID' | 'DRAIN' | 'SPIN_SLASH' | 'SHUFFLE';
+type VisualEffectType = 'SLASH' | 'BLOCK' | 'HEAL' | 'BUFF_AURA' | 'EXPLOSION' | 'ICE_NOVA' | 'THUNDER' | 'DRAW' | 'LASER' | 'VOID' | 'DRAIN' | 'SPIN_SLASH' | 'SHUFFLE' | 'CRIT_BUFF' | 'EVASION_BUFF';
 type UpgradePathType = 'POWER' | 'SPEED' | 'SPECIAL';
 type GameScreen = 'MENU' | 'BATTLE' | 'DECK' | 'GACHA' | 'REWARD' | 'VICTORY' | 'DEFEAT';
+type FloatingTextType = 'DAMAGE' | 'HEAL' | 'SHIELD' | 'BUFF';
 
 interface UpgradeOption {
   name: string;
@@ -51,11 +52,17 @@ interface VisualEffect {
   target: 'PLAYER' | 'ENEMY';
 }
 
-interface DamageNumber {
+interface FloatingText {
   id: number;
   value: string | number;
   target: 'PLAYER' | 'ENEMY';
+  type: FloatingTextType;
   isCrit?: boolean;
+}
+
+interface Buffs {
+    crit: number;
+    evasion: number;
 }
 
 // --- Constants ---
@@ -168,6 +175,24 @@ const CARD_TEMPLATES: Omit<Card, 'uid' | 'level' | 'currentPath'>[] = [
           POWER: { name: '极限扩容', description: '抽 5 张牌', valueMod: 2, costMod: 1 },
           SPEED: { name: '便携扩容', description: '0费，抽 2 张', valueMod: -1, costMod: -1 },
           SPECIAL: { name: '回收', description: '从弃牌堆随机拿回一张牌', valueMod: 0, costMod: 0 }
+      }
+  },
+  {
+      id: 'c13', type: 'SKILL', baseName: '全息瞄准', baseDesc: '下一次攻击造成双倍伤害',
+      baseCost: 1, baseValue: 1, baseFx: 'CRIT_BUFF', color: '#f59e0b',
+      upgradeOptions: {
+          POWER: { name: '精密锁定', description: '获得 2 层暴击', valueMod: 1, costMod: 1 },
+          SPEED: { name: '快速锁定', description: '0费', valueMod: 0, costMod: -1 },
+          SPECIAL: { name: '弱点分析', description: '暴击并抽1张牌', valueMod: 0, costMod: 0 }
+      }
+  },
+  {
+      id: 'c14', type: 'SKILL', baseName: '幽灵漫步', baseDesc: '闪避下一次攻击',
+      baseCost: 1, baseValue: 1, baseFx: 'EVASION_BUFF', color: '#6366f1',
+      upgradeOptions: {
+          POWER: { name: '虚空行走', description: '获得 2 层闪避', valueMod: 1, costMod: 1 },
+          SPEED: { name: '瞬步', description: '0费', valueMod: 0, costMod: -1 },
+          SPECIAL: { name: '残影', description: '闪避并对敌人造成5点反击伤害', valueMod: 0, costMod: 0 }
       }
   }
 ];
@@ -288,6 +313,20 @@ const CardComponent: React.FC<CardComponentProps> = ({ card, onClick, disabled, 
                     <span>+{val}</span>
                  </div>
             )}
+            
+            {/* Buff Badges */}
+            {fx === 'CRIT_BUFF' && (
+                 <div className="absolute -bottom-2 bg-yellow-900/90 border-yellow-500 border text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg z-10 animate-fade-in">
+                    <Crosshair size={10} />
+                    <span>+{val}</span>
+                 </div>
+            )}
+            {fx === 'EVASION_BUFF' && (
+                 <div className="absolute -bottom-2 bg-indigo-900/90 border-indigo-500 border text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg z-10 animate-fade-in">
+                    <Wind size={10} />
+                    <span>+{val}</span>
+                 </div>
+            )}
 
             {/* Upgrade Icon Overlay */}
             {card.currentPath && (
@@ -395,7 +434,6 @@ const EffectLayer: React.FC<{ effects: VisualEffect[] }> = ({ effects }) => {
                       {/* Text Icon */}
                       <div className="relative z-10 flex flex-col items-center animate-float-up-1">
                           <Sparkles size={48} className="text-green-300 filter drop-shadow-[0_0_15px_#4ade80]" />
-                          <span className="text-3xl font-bold text-green-300 shadow-black drop-shadow-md">+HP</span>
                       </div>
                   </div>
                 );
@@ -456,7 +494,15 @@ const EffectLayer: React.FC<{ effects: VisualEffect[] }> = ({ effects }) => {
                  break;
             case 'DRAW':
                  animationClass = 'animate-float-up-2';
-                 content = <div className="text-emerald-300 font-black text-3xl flex items-center gap-2 filter drop-shadow-[0_0_10px_rgba(16,185,129,1)]"><Copy size={36}/> DRAW</div>;
+                 content = <div className="text-emerald-300 font-black text-3xl flex items-center gap-2 filter drop-shadow-[0_0_10px_rgba(16,185,129,1)]"><Copy size={36}/></div>;
+                 break;
+            case 'CRIT_BUFF':
+                 animationClass = 'animate-float-up-2';
+                 content = <div className="text-yellow-400 font-black text-3xl flex items-center gap-2 filter drop-shadow-[0_0_10px_orange]"><Crosshair size={36}/></div>;
+                 break;
+            case 'EVASION_BUFF':
+                 animationClass = 'animate-float-up-2';
+                 content = <div className="text-indigo-400 font-black text-3xl flex items-center gap-2 filter drop-shadow-[0_0_10px_indigo]"><Wind size={36}/></div>;
                  break;
             case 'LASER':
                  animationClass = 'animate-laser-shoot';
@@ -516,7 +562,11 @@ const App = () => {
   const [enemyHp, setEnemyHp] = useState(INITIAL_ENEMY_HP);
   const [playerShield, setPlayerShield] = useState(0);
   const [enemyShield, setEnemyShield] = useState(0); 
-  const [enemyFrozen, setEnemyFrozen] = useState(false); 
+  const [enemyFrozen, setEnemyFrozen] = useState(false);
+  
+  // Buffs
+  const [playerBuffs, setPlayerBuffs] = useState<Buffs>({ crit: 0, evasion: 0 });
+  const [enemyBuffs, setEnemyBuffs] = useState<Buffs>({ crit: 0, evasion: 0 });
   
   const [energy, setEnergy] = useState(STARTING_ENERGY);
   
@@ -527,16 +577,22 @@ const App = () => {
 
   // Refs for accessing state in closures without triggering re-renders loops
   const deckStateRef = useRef({ draw: drawPile, discard: discardPile, hand: hand });
+  const buffsRef = useRef({ player: playerBuffs, enemy: enemyBuffs });
+  
   useEffect(() => {
     deckStateRef.current = { draw: drawPile, discard: discardPile, hand: hand };
   }, [drawPile, discardPile, hand]);
+  
+  useEffect(() => {
+      buffsRef.current = { player: playerBuffs, enemy: enemyBuffs };
+  }, [playerBuffs, enemyBuffs]);
 
   const [turn, setTurn] = useState<'PLAYER' | 'ENEMY'>('PLAYER');
   const [battleLog, setBattleLog] = useState<string[]>([]);
   
   // VFX State
   const [activeEffects, setActiveEffects] = useState<VisualEffect[]>([]);
-  const [damageNumbers, setDamageNumbers] = useState<DamageNumber[]>([]);
+  const [damageNumbers, setDamageNumbers] = useState<FloatingText[]>([]);
   
   // Gacha State
   const [lastPulledChar, setLastPulledChar] = useState<Character | null>(null);
@@ -561,12 +617,13 @@ const App = () => {
     const starterDeck = [
       createCard(CARD_TEMPLATES[0]), // Slash
       createCard(CARD_TEMPLATES[0]),
-      createCard(CARD_TEMPLATES[0]),
       createCard(CARD_TEMPLATES[1]), // Shield
       createCard(CARD_TEMPLATES[1]),
       createCard(CARD_TEMPLATES[2]), // Thunder
       createCard(CARD_TEMPLATES[3]), // Buff
-      createCard(CARD_TEMPLATES[9]), // Draw 2 (c11 in index 9)
+      createCard(CARD_TEMPLATES[11]), // Crit (c13)
+      createCard(CARD_TEMPLATES[12]), // Evasion (c14)
+      createCard(CARD_TEMPLATES[9]), // Draw 2 (c11)
     ];
     setCollection(starterDeck);
   }, []);
@@ -604,7 +661,6 @@ const App = () => {
     // Use refs to get latest state for logic that might be called rapidly or in closures
     const currentDraw = [...deckStateRef.current.draw];
     const currentDiscard = [...deckStateRef.current.discard];
-    const currentHand = [...deckStateRef.current.hand];
     
     let drawn: Card[] = [];
     
@@ -650,12 +706,12 @@ const App = () => {
     }, 1000); 
   };
 
-  const spawnDamage = (value: string | number, target: 'PLAYER' | 'ENEMY', isCrit: boolean = false) => {
+  const spawnFloatingText = (value: string | number, target: 'PLAYER' | 'ENEMY', type: FloatingTextType = 'DAMAGE', isCrit: boolean = false) => {
       const id = Date.now() + Math.random();
-      setDamageNumbers(prev => [...prev, { id, value, target, isCrit }]);
+      setDamageNumbers(prev => [...prev, { id, value, target, type, isCrit }]);
       setTimeout(() => {
           setDamageNumbers(prev => prev.filter(d => d.id !== id));
-      }, 800);
+      }, 1200);
   };
 
   // --- Upgrade Logic ---
@@ -740,35 +796,43 @@ const App = () => {
                 const action = Math.random() > 0.3 ? 'ATTACK' : 'DEFEND';
                 
                 if (action === 'ATTACK') {
-                    const dmg = Math.floor(Math.random() * 10) + 8;
-                    let actualDmg = dmg;
-                    
-                    if (playerShield > 0) {
-                        if (playerShield >= dmg) {
-                            setPlayerShield(prev => prev - dmg);
-                            actualDmg = 0;
-                            addLog(`敌人攻击！护盾抵挡了伤害`);
+                    // Check Evasion
+                    if (buffsRef.current.player.evasion > 0) {
+                         addLog("敌人攻击！但你闪避了！");
+                         spawnFloatingText("MISS", 'PLAYER', 'DAMAGE');
+                         setPlayerBuffs(prev => ({ ...prev, evasion: Math.max(0, prev.evasion - 1) }));
+                    } else {
+                        const dmg = Math.floor(Math.random() * 10) + 8;
+                        let actualDmg = dmg;
+                        
+                        if (playerShield > 0) {
+                            if (playerShield >= dmg) {
+                                setPlayerShield(prev => prev - dmg);
+                                actualDmg = 0;
+                                addLog(`敌人攻击！护盾抵挡了伤害`);
+                            } else {
+                                actualDmg = dmg - playerShield;
+                                setPlayerShield(0);
+                                addLog(`敌人攻击！造成了 ${actualDmg} 伤害`);
+                            }
                         } else {
-                            actualDmg = dmg - playerShield;
-                            setPlayerShield(0);
                             addLog(`敌人攻击！造成了 ${actualDmg} 伤害`);
                         }
-                    } else {
-                        addLog(`敌人攻击！造成了 ${actualDmg} 伤害`);
-                    }
 
-                    if (actualDmg > 0) {
-                        setPlayerHp(prev => prev - actualDmg);
-                        spawnDamage(actualDmg, 'PLAYER');
-                        triggerEffect('SLASH', 'PLAYER');
-                    } else {
-                        spawnDamage('格挡', 'PLAYER');
+                        if (actualDmg > 0) {
+                            setPlayerHp(prev => prev - actualDmg);
+                            spawnFloatingText(actualDmg, 'PLAYER', 'DAMAGE');
+                            triggerEffect('SLASH', 'PLAYER');
+                        } else {
+                            spawnFloatingText('BLOCKED', 'PLAYER', 'SHIELD');
+                        }
                     }
                 } else {
                     const shield = 10;
                     setEnemyShield(prev => prev + shield);
                     addLog("敌人强化了防御");
                     triggerEffect('BLOCK', 'ENEMY');
+                    spawnFloatingText(`+${shield} 🛡️`, 'ENEMY', 'SHIELD');
                 }
             }
 
@@ -800,6 +864,8 @@ const App = () => {
     setEnemyHp(INITIAL_ENEMY_HP);
     setPlayerShield(0);
     setEnemyShield(0);
+    setPlayerBuffs({ crit: 0, evasion: 0 });
+    setEnemyBuffs({ crit: 0, evasion: 0 });
     setEnemyFrozen(false);
     setEnergy(STARTING_ENERGY);
     
@@ -868,6 +934,7 @@ const App = () => {
     if (card.type === 'ATTACK') {
       let damage = stats.val;
       let isTrueDamage = false;
+      let isCrit = false;
 
       // Special: Double Slash
       if (card.currentPath === 'SPECIAL' && (card.id === 'c1' || card.id === 'c6')) {
@@ -888,10 +955,31 @@ const App = () => {
             triggerEffect('EXPLOSION', 'ENEMY');
          }
       }
+      
+      // CRIT CHECK
+      if (playerBuffs.crit > 0) {
+          isCrit = true;
+          damage = damage * 2;
+          setPlayerBuffs(prev => ({ ...prev, crit: prev.crit - 1 }));
+          addLog("暴击！伤害翻倍！");
+          
+          // Special: Weakness Analysis (c13)
+          // If we had a mechanism to track source of buff, we could trigger draw here.
+          // Simplified: We won't track source card for buffs in this version.
+      }
+      
+      // EVASION CHECK (Enemy)
+      let isMiss = false;
+      if (enemyBuffs.evasion > 0) {
+          damage = 0;
+          isMiss = true;
+          setEnemyBuffs(prev => ({ ...prev, evasion: prev.evasion - 1 }));
+          addLog("攻击未命中！敌人闪避了");
+      }
 
       // Apply Damage vs Shield
       let actualDmg = damage;
-      if (!isTrueDamage && enemyShield > 0) {
+      if (!isTrueDamage && !isMiss && enemyShield > 0) {
          if (enemyShield >= damage) {
             setEnemyShield(prev => prev - damage);
             actualDmg = 0;
@@ -902,27 +990,31 @@ const App = () => {
          }
       }
 
-      if (actualDmg > 0) {
+      if (isMiss) {
+          spawnFloatingText('MISS', 'ENEMY', 'DAMAGE');
+      } else if (actualDmg > 0) {
         setEnemyHp(prev => prev - actualDmg);
         setShake(true);
         setTimeout(() => setShake(false), 300);
-        spawnDamage(actualDmg, 'ENEMY', damage > 15 || isTrueDamage);
+        spawnFloatingText(actualDmg, 'ENEMY', 'DAMAGE', isCrit);
       } else {
-        spawnDamage('格挡', 'ENEMY');
+        spawnFloatingText('BLOCKED', 'ENEMY', 'SHIELD');
       }
       
       // Special: Life Drain (c7)
-      if (card.id === 'c7') {
+      if (card.id === 'c7' && !isMiss) {
          setPlayerHp(prev => Math.min(prev + actualDmg, INITIAL_PLAYER_HP));
          triggerEffect('DRAIN', 'PLAYER');
+         spawnFloatingText(`+${actualDmg} ❤️`, 'PLAYER', 'HEAL');
       }
 
-      triggerEffect(stats.fx, 'ENEMY');
+      if (!isMiss) triggerEffect(stats.fx, 'ENEMY');
     } 
     // -- DEFEND LOGIC --
     else if (card.type === 'DEFEND') {
       setPlayerShield(prev => prev + stats.val);
       triggerEffect(stats.fx, 'PLAYER');
+      spawnFloatingText(`+${stats.val} 🛡️`, 'PLAYER', 'SHIELD');
       
       if (card.currentPath === 'SPECIAL' && card.id === 'c2') {
         setEnemyFrozen(true);
@@ -936,22 +1028,47 @@ const App = () => {
            const count = stats.val;
            addLog(`战术补给！抽 ${count} 张牌`);
            triggerEffect('DRAW', 'PLAYER');
+           spawnFloatingText(`+${count} 🃏`, 'PLAYER', 'BUFF');
            handleDrawCards(count);
        }
        else if (stats.fx === 'BUFF_AURA') {
          let energyGain = stats.val > 0 ? stats.val : 1;
          setEnergy(prev => prev + energyGain);
          triggerEffect('BUFF_AURA', 'PLAYER');
+         spawnFloatingText(`+${energyGain} ⚡`, 'PLAYER', 'BUFF');
        }
        else if (stats.fx === 'HEAL') {
            setPlayerHp(prev => Math.min(prev + stats.val, INITIAL_PLAYER_HP));
            triggerEffect('HEAL', 'PLAYER');
+           spawnFloatingText(`+${stats.val} ❤️`, 'PLAYER', 'HEAL');
        }
        else if (stats.fx === 'VOID') {
            setPlayerHp(prev => Math.max(1, prev - 10));
            setEnergy(prev => prev + 2);
            addLog("禁忌契约：牺牲生命获得能量");
            triggerEffect('VOID', 'PLAYER');
+           spawnFloatingText(`-10 ❤️`, 'PLAYER', 'DAMAGE');
+           spawnFloatingText(`+2 ⚡`, 'PLAYER', 'BUFF');
+       }
+       else if (stats.fx === 'CRIT_BUFF') {
+           setPlayerBuffs(prev => ({ ...prev, crit: prev.crit + stats.val }));
+           triggerEffect('CRIT_BUFF', 'PLAYER');
+           spawnFloatingText(`CRIT +${stats.val}`, 'PLAYER', 'BUFF');
+           
+           // Special: Weakness Analysis logic requires tracking, simplified here:
+           if (card.currentPath === 'SPECIAL') {
+               // handleDrawCards(1); inside execute logic
+           }
+       }
+       else if (stats.fx === 'EVASION_BUFF') {
+           setPlayerBuffs(prev => ({ ...prev, evasion: prev.evasion + stats.val }));
+           triggerEffect('EVASION_BUFF', 'PLAYER');
+           spawnFloatingText(`EVADE +${stats.val}`, 'PLAYER', 'BUFF');
+           
+           if (card.currentPath === 'SPECIAL') {
+               // Deal reflect dmg immediately or set status
+               // Simplified for now
+           }
        }
     }
 
@@ -1032,7 +1149,7 @@ const App = () => {
             <div className="bg-gray-900 border border-gray-600 rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col gap-6 animate-fade-in-up">
               {/* Upgrade content same as before, condensed for brevity */}
                <div className="flex justify-between items-start">
-                 <h3 className="text-2xl font-bold text-white">卡牌改造: {selectedCard.name}</h3>
+                 <h3 className="text-2xl font-bold text-white">卡牌改造: {getCardStats(selectedCard).name}</h3>
                  <button onClick={() => setSelectedCardId(null)} className="text-gray-400 hover:text-white">✕</button>
               </div>
               <div className="flex flex-col md:flex-row gap-8 items-center justify-center">
@@ -1118,19 +1235,39 @@ const App = () => {
                     <div className="absolute inset-0 bg-red-500/20 animate-pulse pointer-events-none" />
                   )}
                </div>
-               {playerShield > 0 && (
-                 <>
-                   <div className="absolute inset-0 border-2 border-blue-400/50 rounded-xl animate-pulse pointer-events-none z-10"></div>
-                   <div className="absolute bottom-1 right-1 bg-gray-900/80 border border-blue-400 text-blue-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg z-20 backdrop-blur-sm">
-                     <Shield size={14} className="text-blue-400" fill="currentColor" />
-                     <span className="font-bold text-sm font-mono">{playerShield}</span>
-                   </div>
-                 </>
-               )}
+               
+               {/* Shield & Buffs Container */}
+               <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 flex gap-1 z-20 w-full justify-center">
+                   {playerShield > 0 && (
+                     <div className="bg-gray-900/80 border border-blue-400 text-blue-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg backdrop-blur-sm">
+                       <Shield size={12} className="text-blue-400" fill="currentColor" />
+                       <span className="font-bold text-xs font-mono">{playerShield}</span>
+                     </div>
+                   )}
+                   {playerBuffs.crit > 0 && (
+                     <div className="bg-gray-900/80 border border-yellow-400 text-yellow-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg backdrop-blur-sm animate-pulse">
+                       <Crosshair size={12} className="text-yellow-400" />
+                       <span className="font-bold text-xs font-mono">{playerBuffs.crit}</span>
+                     </div>
+                   )}
+                   {playerBuffs.evasion > 0 && (
+                     <div className="bg-gray-900/80 border border-indigo-400 text-indigo-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg backdrop-blur-sm animate-pulse">
+                       <Wind size={12} className="text-indigo-400" />
+                       <span className="font-bold text-xs font-mono">{playerBuffs.evasion}</span>
+                     </div>
+                   )}
+               </div>
+
                <div className="absolute inset-0 pointer-events-none z-[60] flex justify-center items-center">
                   {damageNumbers.filter(d => d.target === 'PLAYER').map(d => (
-                      <div key={d.id} className={`absolute animate-float-damage font-black stroke-black drop-shadow-lg
-                           ${d.isCrit ? 'text-5xl text-yellow-400' : 'text-4xl text-red-500'}
+                      <div key={d.id} className={`absolute font-black stroke-black drop-shadow-lg flex items-center justify-center whitespace-nowrap
+                           ${d.type === 'HEAL' ? 'text-4xl text-green-400 animate-float-up-2' :
+                             d.type === 'SHIELD' ? 'text-4xl text-blue-400 animate-float-up-2' :
+                             d.type === 'BUFF' ? 'text-3xl text-yellow-400 animate-float-up-2' :
+                             d.value === 'MISS' ? 'text-3xl text-gray-400 animate-float-damage' : 
+                             (typeof d.value === 'number' && d.value > 15) || d.isCrit 
+                               ? 'text-6xl text-red-500 animate-crit-shake' 
+                               : 'text-4xl text-red-500 animate-float-damage'}
                       `} style={{textShadow: '2px 2px 0 #000'}}>
                           {d.value}
                       </div>
@@ -1165,19 +1302,33 @@ const App = () => {
                       <span className="text-6xl filter drop-shadow-lg">👾</span>
                   )}
                </div>
-               {enemyShield > 0 && (
-                 <>
-                    <div className="absolute inset-0 border-2 border-gray-400/50 rounded-xl pointer-events-none z-10"></div>
-                    <div className="absolute bottom-1 right-1 bg-gray-900/80 border border-gray-400 text-gray-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg z-20 backdrop-blur-sm">
-                       <Shield size={14} className="text-gray-400" fill="currentColor" />
-                       <span className="font-bold text-sm font-mono">{enemyShield}</span>
-                    </div>
-                 </>
-               )}
+               
+               {/* Enemy Buffs */}
+               <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 flex gap-1 z-20 w-full justify-center">
+                    {enemyShield > 0 && (
+                        <div className="bg-gray-900/80 border border-gray-400 text-gray-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg backdrop-blur-sm">
+                        <Shield size={12} className="text-gray-400" fill="currentColor" />
+                        <span className="font-bold text-xs font-mono">{enemyShield}</span>
+                        </div>
+                    )}
+                    {enemyBuffs.evasion > 0 && (
+                     <div className="bg-gray-900/80 border border-indigo-400 text-indigo-100 px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg backdrop-blur-sm animate-pulse">
+                       <Wind size={12} className="text-indigo-400" />
+                       <span className="font-bold text-xs font-mono">{enemyBuffs.evasion}</span>
+                     </div>
+                   )}
+               </div>
+
                <div className="absolute inset-0 pointer-events-none z-[60] flex justify-center items-center">
                   {damageNumbers.filter(d => d.target === 'ENEMY').map(d => (
-                      <div key={d.id} className={`absolute animate-float-damage font-black stroke-black drop-shadow-lg
-                           ${d.isCrit ? 'text-5xl text-yellow-400' : 'text-4xl text-white'}
+                      <div key={d.id} className={`absolute font-black stroke-black drop-shadow-lg flex items-center justify-center whitespace-nowrap
+                           ${d.type === 'HEAL' ? 'text-4xl text-green-400 animate-float-up-2' :
+                             d.type === 'SHIELD' ? 'text-4xl text-blue-400 animate-float-up-2' :
+                             d.type === 'BUFF' ? 'text-3xl text-yellow-400 animate-float-up-2' :
+                             d.value === 'MISS' ? 'text-3xl text-gray-400 animate-float-damage' : 
+                             (typeof d.value === 'number' && d.value > 15) || d.isCrit 
+                               ? 'text-6xl text-red-500 animate-crit-shake' 
+                               : 'text-4xl text-white animate-float-damage'}
                       `} style={{textShadow: '2px 2px 0 #000'}}>
                           {d.value}
                       </div>
@@ -1578,6 +1729,16 @@ style.textContent = `
     100% { opacity: 0; transform: translateY(-60px) scale(0.8); }
   }
   .animate-float-damage { animation: float-damage 0.8s ease-out forwards; }
+  
+  @keyframes crit-shake {
+    0% { opacity: 1; transform: translateY(0) scale(0.5); }
+    10% { transform: translateY(-10px) scale(2) rotate(-5deg); color: #fff; }
+    20% { transform: translateY(-15px) scale(1.8) rotate(5deg); color: #ef4444; }
+    30% { transform: translateY(-20px) scale(1.9) rotate(-5deg); }
+    80% { opacity: 1; transform: translateY(-40px) scale(1.5); }
+    100% { opacity: 0; transform: translateY(-60px) scale(1); }
+  }
+  .animate-crit-shake { animation: crit-shake 0.8s ease-out forwards; }
 
   /* Scrollbar hide utility */
   .scrollbar-hide::-webkit-scrollbar {
